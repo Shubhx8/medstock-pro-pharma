@@ -1,0 +1,11 @@
+{
+  "name": "medicine-expiry-system",
+  "version": "1.0.0",
+  "description": "Medicine Expiry & Stock Alert System",
+  "main": "backend/server.js",
+  "scripts": {
+    "start": "node backend/server.js",
+    "build": "cd backend && npm install",
+    "seed:users": "node backend/src/scripts/seedUsers.js"
+  }
+}

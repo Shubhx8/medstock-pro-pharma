@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Medicine Expiry &amp; Stock Alert System</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body class="dark-mode">
+
+  <div class="app-layout">
+    <!-- Backdrop overlay for mobile drawer -->
+    <div id="sidebarOverlay"></div>
+
+    <!-- Left Sidebar -->
+    <aside id="sidebar">
+      <div class="brand">
+        <div class="brand-header">
+          <span class="brand-icon" aria-hidden="true">&#128138;</span>
+          <div class="brand-title-wrap">
+            <span class="brand-title">MedStock</span>
+            <span class="brand-badge">PRO PHARMA</span>
+          </div>
+        </div>
+        <p class="brand-subtitle">Medicine Expiry &amp; Stock Alert System</p>
+      </div>
+
+      <!-- Navigation Menu -->
+      <nav id="nav" aria-label="Main Navigation"></nav>
+
+      <!-- Sidebar Footer with Reset Data & Status -->
+      <div class="sidebar-footer">
+        <div class="system-status">
+          <span class="status-indicator-dot"></span>
+          <span id="systemStatusText" class="status-text">System Active &bull; Dark Mode</span>
+        </div>
+        <button id="resetBtn" class="btn-reset" title="Restore default sample medicines, suppliers and batches">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+          <span>Reset sample data</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <div class="main-container">
+      <!-- Universal Top Bar -->
+      <header id="topBar">
+        <div class="topbar-left">
+          <button id="menuBtn" class="topbar-icon-btn" aria-label="Toggle navigation menu" title="Toggle menu">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+          </button>
+          <div class="topbar-clinic-info">
+            <span class="clinic-badge">HOSPITAL &amp; PHARMACY STORE</span>
+            <span class="clinic-location">Central Inventory &bull; Real-Time FEFO</span>
+          </div>
+        </div>
+
+        <div class="topbar-right">
+          <!-- Logged in as User Picker -->
+          <div class="user-picker-wrapper">
+            <label for="currentUserSelect" class="user-picker-label">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              <span>Logged in as:</span>
+            </label>
+            <select id="currentUserSelect" class="user-select-dropdown" aria-label="Current logged in user"></select>
+          </div>
+
+          <!-- Sun/Moon Theme Toggle Button -->
+          <button id="themeToggleBtn" class="theme-toggle-btn" title="Toggle Light / Dark mode" aria-label="Toggle Light or Dark theme">
+            <span id="themeToggleIcon" class="theme-icon-slot"></span>
+            <span id="themeToggleText" class="theme-text-slot">Light Mode</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Main Workspace Area -->
+      <main id="view" role="main"></main>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast" role="alert" aria-live="polite"></div>
+
+  <!-- Shared Datalist for ~60 Common Medicines -->
+  <datalist id="medicineDatalist"></datalist>
+
+  <script src="app.js"></script>
+</body>
+</html>
