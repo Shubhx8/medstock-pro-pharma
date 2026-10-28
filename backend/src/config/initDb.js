@@ -15,6 +15,19 @@ async function autoInitDatabase(pool) {
         await pool.query("ALTER TABLE medicine ADD COLUMN unit_price DECIMAL(10,2) NOT NULL DEFAULT 0.00");
         console.log('[AUTO-INIT] Added unit_price column to medicine table.');
       }
+
+      // Populate default seed unit_prices if they are 0.00
+      const seedPrices = [
+        [28.00, 1], [85.50, 2], [112.00, 3], [32.00, 4],
+        [45.00, 5], [64.00, 6], [58.00, 7], [36.00, 8],
+        [92.00, 9], [78.00, 10], [98.00, 11], [120.00, 12]
+      ];
+      for (const [p, id] of seedPrices) {
+        await pool.query(
+          "UPDATE medicine SET unit_price = ? WHERE medicine_id = ? AND (unit_price = 0 OR unit_price IS NULL)",
+          [p, id]
+        );
+      }
       return; // Already initialized
     }
 

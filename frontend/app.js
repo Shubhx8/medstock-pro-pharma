@@ -662,6 +662,7 @@ async function addMedicine(m) {
         category_id: Number(m.category_id),
         manufacturer_id: Number(m.manufacturer_id),
         unit: m.unit || 'tablet',
+        unit_price: Number(m.unit_price) || 0,
         reorder_level: Number(m.min_stock_level) || 50
       })
     });
@@ -696,6 +697,7 @@ async function updateMedicine(id, m) {
         category_id: Number(m.category_id),
         manufacturer_id: Number(m.manufacturer_id),
         unit: m.unit,
+        unit_price: Number(m.unit_price) || 0,
         reorder_level: Number(m.min_stock_level)
       })
     });
