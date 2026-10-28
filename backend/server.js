@@ -3,6 +3,7 @@ const cron = require('node-cron');
 const app = require('./src/app');
 const pool = require('./src/config/db');
 const alertService = require('./src/services/alertService');
+const autoInitDatabase = require('./src/config/initDb');
 
 const PORT = process.env.PORT || 5000;
 
@@ -12,7 +13,11 @@ async function startServer() {
     const [rows] = await pool.query('SELECT 1 + 1 AS result');
     console.log('[DB] MySQL connection pool established successfully. Test query result:', rows[0].result);
 
-    // 2. Run alert generation on startup (non-blocking, never throws)
+    // 2. Auto-initialize database schema, triggers and seed if table is absent
+    await autoInitDatabase(pool);
+
+    // 3. Run alert generation on startup (non-blocking, never throws)
+
     try {
       console.log('[ALERTS] Running initial startup alert generation...');
       const alertStats = await alertService.generateAlerts();
