@@ -14,6 +14,7 @@ const getMedicines = asyncHandler(async (req, res) => {
       m.generic_name,
       m.strength,
       m.unit,
+      m.unit_price,
       m.category_id,
       c.name AS category_name,
       m.manufacturer_id,
@@ -52,6 +53,7 @@ const getMedicineById = asyncHandler(async (req, res) => {
       m.generic_name,
       m.strength,
       m.unit,
+      m.unit_price,
       m.category_id,
       c.name AS category_name,
       m.manufacturer_id,
@@ -92,7 +94,7 @@ const getMedicineById = asyncHandler(async (req, res) => {
 
 // POST /api/medicines
 const createMedicine = asyncHandler(async (req, res) => {
-  let { name, medicine_name, generic_name, strength, unit, category_id, manufacturer_id, reorder_level, min_stock_level } = req.body;
+  let { name, medicine_name, generic_name, strength, unit, unit_price, category_id, manufacturer_id, reorder_level, min_stock_level } = req.body;
 
   const actualName = name || medicine_name;
   const actualReorder = reorder_level !== undefined ? reorder_level : (min_stock_level !== undefined ? min_stock_level : 50);
@@ -104,11 +106,22 @@ const createMedicine = asyncHandler(async (req, res) => {
     });
   }
 
+  if (unit_price !== undefined && unit_price !== null && unit_price !== '') {
+    if (isNaN(Number(unit_price)) || Number(unit_price) < 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Unit price must be a number greater than or equal to 0'
+      });
+    }
+  }
+
+  const actualUnitPrice = (unit_price !== undefined && unit_price !== null && unit_price !== '') ? Number(unit_price) : 0;
+
   // Insert into medicine table
   const [result] = await pool.query(
-    `INSERT INTO medicine (name, generic_name, strength, unit, category_id, manufacturer_id, reorder_level)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [actualName.trim(), generic_name || null, strength || null, unit || 'tablet', category_id, manufacturer_id, actualReorder]
+    `INSERT INTO medicine (name, generic_name, strength, unit, unit_price, category_id, manufacturer_id, reorder_level)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [actualName.trim(), generic_name || null, strength || null, unit || 'tablet', actualUnitPrice, category_id, manufacturer_id, actualReorder]
   );
 
   const [created] = await pool.query(`
@@ -130,7 +143,7 @@ const createMedicine = asyncHandler(async (req, res) => {
 // PUT /api/medicines/:id
 const updateMedicine = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  let { name, medicine_name, generic_name, strength, unit, category_id, manufacturer_id, reorder_level, min_stock_level } = req.body;
+  let { name, medicine_name, generic_name, strength, unit, unit_price, category_id, manufacturer_id, reorder_level, min_stock_level } = req.body;
 
   const actualName = name || medicine_name;
   const actualReorder = reorder_level !== undefined ? reorder_level : min_stock_level;
@@ -140,6 +153,15 @@ const updateMedicine = asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: 'Medicine not found' });
   }
 
+  if (unit_price !== undefined && unit_price !== null && unit_price !== '') {
+    if (isNaN(Number(unit_price)) || Number(unit_price) < 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Unit price must be a number greater than or equal to 0'
+      });
+    }
+  }
+
   const setClauses = [];
   const vals = [];
 
@@ -147,6 +169,10 @@ const updateMedicine = asyncHandler(async (req, res) => {
   if (generic_name !== undefined) { setClauses.push('generic_name = ?'); vals.push(generic_name); }
   if (strength !== undefined) { setClauses.push('strength = ?'); vals.push(strength); }
   if (unit !== undefined) { setClauses.push('unit = ?'); vals.push(unit); }
+  if (unit_price !== undefined && unit_price !== null && unit_price !== '') {
+    setClauses.push('unit_price = ?');
+    vals.push(Number(unit_price));
+  }
   if (category_id !== undefined) { setClauses.push('category_id = ?'); vals.push(category_id); }
   if (manufacturer_id !== undefined) { setClauses.push('manufacturer_id = ?'); vals.push(manufacturer_id); }
   if (actualReorder !== undefined) { setClauses.push('reorder_level = ?'); vals.push(actualReorder); }

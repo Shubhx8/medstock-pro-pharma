@@ -48,9 +48,11 @@ CREATE TABLE medicine (
   generic_name    VARCHAR(100),
   strength        VARCHAR(30),
   unit            VARCHAR(20) NOT NULL DEFAULT 'tablet',
+  unit_price      DECIMAL(10,2) NOT NULL DEFAULT 0.00,
   category_id     INT NOT NULL,
   manufacturer_id INT NOT NULL,
   reorder_level   INT NOT NULL DEFAULT 50,
+  CONSTRAINT chk_med_unit_price CHECK (unit_price >= 0),
   CONSTRAINT chk_med_reorder CHECK (reorder_level >= 0),
   CONSTRAINT fk_med_cat  FOREIGN KEY (category_id)     REFERENCES category(category_id),
   CONSTRAINT fk_med_man  FOREIGN KEY (manufacturer_id) REFERENCES manufacturer(manufacturer_id)

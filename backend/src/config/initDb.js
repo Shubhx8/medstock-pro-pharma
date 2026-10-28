@@ -9,6 +9,12 @@ async function autoInitDatabase(pool) {
     // Check if tables already exist
     const [tables] = await pool.query("SHOW TABLES LIKE 'medicine'");
     if (tables.length > 0) {
+      // Ensure unit_price column exists if schema was created earlier
+      const [colCheck] = await pool.query("SHOW COLUMNS FROM medicine LIKE 'unit_price'");
+      if (colCheck.length === 0) {
+        await pool.query("ALTER TABLE medicine ADD COLUMN unit_price DECIMAL(10,2) NOT NULL DEFAULT 0.00");
+        console.log('[AUTO-INIT] Added unit_price column to medicine table.');
+      }
       return; // Already initialized
     }
 
@@ -66,9 +72,11 @@ async function autoInitDatabase(pool) {
         generic_name    VARCHAR(100),
         strength        VARCHAR(30),
         unit            VARCHAR(20) NOT NULL DEFAULT 'tablet',
+        unit_price      DECIMAL(10,2) NOT NULL DEFAULT 0.00,
         category_id     INT NOT NULL,
         manufacturer_id INT NOT NULL,
         reorder_level   INT NOT NULL DEFAULT 50,
+        CONSTRAINT chk_med_unit_price CHECK (unit_price >= 0),
         CONSTRAINT chk_med_reorder CHECK (reorder_level >= 0),
         CONSTRAINT fk_med_cat  FOREIGN KEY (category_id)     REFERENCES category(category_id),
         CONSTRAINT fk_med_man  FOREIGN KEY (manufacturer_id) REFERENCES manufacturer(manufacturer_id)
@@ -281,19 +289,19 @@ async function autoInitDatabase(pool) {
     `);
 
     await pool.query(`
-      INSERT INTO medicine (medicine_id, name, generic_name, strength, unit, category_id, manufacturer_id, reorder_level) VALUES
-      (1,'Paracetamol 500','Paracetamol','500mg','tablet',1,1,100),
-      (2,'Amoxicillin 250','Amoxicillin','250mg','capsule',2,2,80),
-      (3,'Azithromycin 500','Azithromycin','500mg','tablet',2,1,60),
-      (4,'Cetirizine 10','Cetirizine','10mg','tablet',3,3,80),
-      (5,'Metformin 500','Metformin','500mg','tablet',4,4,120),
-      (6,'Omeprazole 20','Omeprazole','20mg','capsule',5,3,70),
-      (7,'Amlodipine 5','Amlodipine','5mg','tablet',6,5,90),
-      (8,'Ibuprofen 400','Ibuprofen','400mg','tablet',1,2,80),
-      (9,'Pantoprazole 40','Pantoprazole','40mg','tablet',5,4,70),
-      (10,'Cough Syrup 100ml','Dextromethorphan','100ml','bottle',7,5,30),
-      (11,'Atorvastatin 10','Atorvastatin','10mg','tablet',8,1,60),
-      (12,'Vitamin D3 60K','Cholecalciferol','60000 IU','sachet',9,3,50)
+      INSERT INTO medicine (medicine_id, name, generic_name, strength, unit, unit_price, category_id, manufacturer_id, reorder_level) VALUES
+      (1,'Paracetamol 500','Paracetamol','500mg','tablet',28.00,1,1,100),
+      (2,'Amoxicillin 250','Amoxicillin','250mg','capsule',85.50,2,2,80),
+      (3,'Azithromycin 500','Azithromycin','500mg','tablet',112.00,2,1,60),
+      (4,'Cetirizine 10','Cetirizine','10mg','tablet',32.00,3,3,80),
+      (5,'Metformin 500','Metformin','500mg','tablet',45.00,4,4,120),
+      (6,'Omeprazole 20','Omeprazole','20mg','capsule',64.00,5,3,70),
+      (7,'Amlodipine 5','Amlodipine','5mg','tablet',58.00,6,5,90),
+      (8,'Ibuprofen 400','Ibuprofen','400mg','tablet',36.00,1,2,80),
+      (9,'Pantoprazole 40','Pantoprazole','40mg','tablet',92.00,5,4,70),
+      (10,'Cough Syrup 100ml','Dextromethorphan','100ml','bottle',78.00,7,5,30),
+      (11,'Atorvastatin 10','Atorvastatin','10mg','tablet',98.00,8,1,60),
+      (12,'Vitamin D3 60K','Cholecalciferol','60000 IU','sachet',120.00,9,3,50)
       ON DUPLICATE KEY UPDATE name=VALUES(name)
     `);
 
