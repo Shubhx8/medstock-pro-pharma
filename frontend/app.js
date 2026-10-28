@@ -1228,8 +1228,7 @@ async function vDashboard() {
     const u = usableStock(m.medicine_id, bats);
     return u > 0 && u <= m.min_stock_level;
   });
-  const outOfStockMeds = meds.filter(m => usableStock(m.medicine_id, bats) === 0);
-  const openAlerts = alerts.filter(a => a.status === "Open");
+  const openAlerts = alerts.filter(a => (a.status || "").toUpperCase() === "OPEN");
 
   // Sorted list for near-expiry alert table
   const expiringAlertList = nearExpiryBatches
@@ -2980,9 +2979,8 @@ async function vAlerts() {
         </select>
         <select id="alertStatusFilter">
           <option value="">All Statuses</option>
-          <option value="Open">Open</option>
-          <option value="Acknowledged">Acknowledged</option>
-          <option value="Resolved">Resolved</option>
+          <option value="OPEN">Open</option>
+          <option value="RESOLVED">Resolved</option>
         </select>
       </div>
 
@@ -3014,14 +3012,16 @@ async function vAlerts() {
       .reverse()
       .filter(a => {
         const matchType = !typeF || a.alert_type === typeF;
-        const matchStat = !statF || a.status === statF;
+        const normStatus = (a.status || "").toUpperCase();
+        const normFilter = (statF || "").toUpperCase();
+        const matchStat = !normFilter || normStatus === normFilter;
         return matchType && matchStat;
       });
 
     const rows = filtered.map(a => {
       const b = batchMap.get(a.batch_id);
-      const mName = b ? medMap.get(b.medicine_id) : "General Stock";
-      const bNo = b ? b.batch_no : "N/A";
+      const mName = a.medicine_name || (b ? medMap.get(b.medicine_id) : (a.medicine_id ? medMap.get(a.medicine_id) : "General Stock"));
+      const bNo = a.batch_no || (b ? b.batch_no : "N/A");
 
       let typeBadge = "";
       if (a.alert_type === "EXPIRED") typeBadge = '<span class="tag expired">EXPIRED</span>';
@@ -3029,17 +3029,21 @@ async function vAlerts() {
       else if (a.alert_type === "LOW_STOCK") typeBadge = '<span class="tag near">LOW STOCK</span>';
       else typeBadge = '<span class="tag expired">OUT OF STOCK</span>';
 
+      const normStatus = (a.status || "").toUpperCase();
       let statusBadge = "";
-      if (a.status === "Open") statusBadge = '<span class="tag expired">Open</span>';
-      else if (a.status === "Acknowledged") statusBadge = '<span class="tag near">Acknowledged</span>';
-      else statusBadge = '<span class="tag ok">Resolved</span>';
+      if (normStatus === "OPEN") {
+        statusBadge = '<span class="tag expired">Open</span>';
+      } else if (normStatus === "ACKNOWLEDGED") {
+        statusBadge = '<span class="tag near">Acknowledged</span>';
+      } else {
+        statusBadge = '<span class="tag ok">Resolved</span>';
+      }
 
       const actions = [];
-      if (a.status === "Open") {
-        actions.push(`<button class="btn sm ghost" data-ack-alert="${a.alert_id}">Acknowledge</button>`);
-      }
-      if (a.status !== "Resolved") {
+      if (normStatus === "OPEN" || normStatus === "ACKNOWLEDGED") {
         actions.push(`<button class="btn sm ghost" data-res-alert="${a.alert_id}">Resolve</button>`);
+      } else {
+        actions.push('<span class="tag neutral">Resolved</span>');
       }
 
       return {
@@ -3050,7 +3054,7 @@ async function vAlerts() {
           formatDisplayDate(a.alert_date),
           b ? formatDisplayDate(b.expiry_date) : "N/A",
           statusBadge,
-          actions.join(" ") || '<span class="tag neutral">None</span>'
+          actions.join(" ")
         ]
       };
     });
