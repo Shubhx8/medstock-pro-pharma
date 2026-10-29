@@ -19,11 +19,11 @@ async function startServer() {
     // 3. Run alert generation on startup (non-blocking, never throws)
 
     try {
-      console.log('[ALERTS] Running initial startup alert generation...');
+      console.log('[EXPIRY-SERVICE] Running initial startup alert generation...');
       const alertStats = await alertService.generateAlerts();
-      console.log('[ALERTS] Initial alerts generated:', alertStats);
+      console.log('[EXPIRY-SERVICE] Initial alerts generated:', alertStats);
     } catch (alertErr) {
-      console.error('[ALERTS] Startup alert generation failed (will retry on cron):', alertErr.message);
+      console.error('[EXPIRY-SERVICE] Startup alert generation failed (will retry on cron):', alertErr.message);
     }
 
     // 3. Setup daily cron job at 00:05
