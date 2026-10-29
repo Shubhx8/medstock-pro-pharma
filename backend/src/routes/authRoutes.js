@@ -3,7 +3,10 @@ const router = express.Router();
 const authController = require('../controllers/authController');
 const { verifyToken, requireRole } = require('../middleware/auth');
 
+router.post('/signup', authController.signup);
+router.post('/register', authController.signup);
 router.post('/login', authController.login);
+router.post('/logout', authController.logout);
 router.get('/me', verifyToken, authController.me);
 router.get('/users', verifyToken, authController.getAllUsers);
 router.post('/users', verifyToken, requireRole('admin'), authController.createUser);

@@ -3,6 +3,70 @@ const jwt = require('jsonwebtoken');
 const pool = require('../config/db');
 const asyncHandler = require('../utils/asyncHandler');
 
+// POST /api/auth/signup or /api/auth/register
+const signup = asyncHandler(async (req, res) => {
+  const { name, user_name, email, password, role } = req.body;
+  const fullName = (name || user_name || '').trim();
+  const userEmail = (email || '').trim().toLowerCase();
+  const plainPassword = (password || '').trim();
+
+  if (!fullName) {
+    return res.status(400).json({ success: false, message: 'Full name is required' });
+  }
+
+  if (!userEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(userEmail)) {
+    return res.status(400).json({ success: false, message: 'Please provide a valid email address' });
+  }
+
+  if (!plainPassword || plainPassword.length < 6) {
+    return res.status(400).json({ success: false, message: 'Password must be at least 6 characters long' });
+  }
+
+  // Check email uniqueness
+  const [existing] = await pool.query('SELECT user_id FROM users WHERE email = ?', [userEmail]);
+  if (existing.length > 0) {
+    return res.status(400).json({
+      success: false,
+      message: 'An account with this email address already exists. Please sign in.'
+    });
+  }
+
+  // Normalize role
+  let normalizedRole = (role || 'pharmacist').trim().toLowerCase();
+  if (!['admin', 'pharmacist', 'storekeeper'].includes(normalizedRole)) {
+    normalizedRole = 'pharmacist';
+  }
+
+  // Hash password with bcrypt salt = 10
+  const salt = await bcrypt.genSalt(10);
+  const passwordHash = await bcrypt.hash(plainPassword, salt);
+
+  const [result] = await pool.query(
+    'INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?)',
+    [fullName, userEmail, passwordHash, normalizedRole]
+  );
+
+  const newUserId = result.insertId;
+  const tokenPayload = {
+    user_id: newUserId,
+    name: fullName,
+    email: userEmail,
+    role: normalizedRole
+  };
+
+  const secret = process.env.JWT_SECRET || 'secret';
+  const token = jwt.sign(tokenPayload, secret, { expiresIn: '7d' });
+
+  res.status(201).json({
+    success: true,
+    data: {
+      token,
+      user: tokenPayload
+    },
+    message: 'Account created successfully'
+  });
+});
+
 // POST /api/auth/login
 const login = asyncHandler(async (req, res) => {
   const { email, user_id, password } = req.body;
@@ -10,7 +74,7 @@ const login = asyncHandler(async (req, res) => {
   if (!password || (!email && !user_id)) {
     return res.status(400).json({
       success: false,
-      message: 'Password and user selection (or email) are required'
+      message: 'Email and password are required'
     });
   }
 
@@ -24,21 +88,12 @@ const login = asyncHandler(async (req, res) => {
   if (rows.length === 0) {
     return res.status(401).json({
       success: false,
-      message: 'User account not found'
+      message: 'Invalid email or user account not found'
     });
   }
 
   const user = rows[0];
-  let isMatch = await bcrypt.compare(password, user.password_hash);
-
-  // Fallback for default demo accounts (allows staff123 or admin123 if user has default hash)
-  if (!isMatch && (password === 'staff123' || password === 'admin123')) {
-    const isDefaultAdmin = await bcrypt.compare('admin123', user.password_hash);
-    const isDefaultStaff = await bcrypt.compare('staff123', user.password_hash);
-    if (isDefaultAdmin || isDefaultStaff) {
-      isMatch = true;
-    }
-  }
+  const isMatch = await bcrypt.compare(password, user.password_hash);
 
   if (!isMatch) {
     return res.status(401).json({
@@ -63,7 +118,15 @@ const login = asyncHandler(async (req, res) => {
       token,
       user: tokenPayload
     },
-    message: `Logged in successfully as ${user.name}`
+    message: `Welcome back, ${user.name}`
+  });
+});
+
+// POST /api/auth/logout
+const logout = asyncHandler(async (req, res) => {
+  res.json({
+    success: true,
+    message: 'Logged out successfully'
   });
 });
 
@@ -240,7 +303,9 @@ const deleteUser = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
+  signup,
   login,
+  logout,
   me,
   getAllUsers,
   createUser,

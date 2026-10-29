@@ -637,82 +637,32 @@ function newId(db) {
    --------------------------------------------------------------------- */
 
 let cachedAuthToken = localStorage.getItem("medstock_auth_token") || null;
-let currentLoggedInUserId = Number(localStorage.getItem("medstock_active_user")) || 1;
+let currentLoggedInUser = null;
+let currentLoggedInUserId = Number(localStorage.getItem("medstock_active_user")) || null;
 
-/** Ensure valid JWT token for active session */
-async function getAuthToken() {
-  if (cachedAuthToken) {
-    return cachedAuthToken;
-  }
-  try {
-    const savedUserId = Number(localStorage.getItem("medstock_active_user")) || 1;
-    const pwd = savedUserId === 1 ? "admin123" : "staff123";
-    const res = await fetch(`${CONFIG.API_BASE}/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user_id: savedUserId, password: pwd })
-    });
-    const json = await res.json();
-    if (json.success && json.data && json.data.token) {
-      cachedAuthToken = json.data.token;
-      currentLoggedInUserId = json.data.user.user_id;
-      localStorage.setItem("medstock_auth_token", cachedAuthToken);
-      localStorage.setItem("medstock_active_user", currentLoggedInUserId);
-      return cachedAuthToken;
-    }
-  } catch (err) {
-    console.warn("Backend auth failed, using local storage mode:", err.message);
-  }
-  return null;
+/** Returns active JWT token or null if unauthenticated */
+function getAuthToken() {
+  return cachedAuthToken || localStorage.getItem("medstock_auth_token") || null;
 }
 
-/** Authenticate user switch with password */
-async function authenticateUserSwitch(userId, password) {
-  try {
-    const res = await fetch(`${CONFIG.API_BASE}/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user_id: Number(userId), password: password.trim() })
-    });
-    const json = await res.json();
-    if (json.success && json.data && json.data.token) {
-      cachedAuthToken = json.data.token;
-      currentLoggedInUserId = json.data.user.user_id;
-      localStorage.setItem("medstock_auth_token", cachedAuthToken);
-      localStorage.setItem("medstock_active_user", currentLoggedInUserId);
-      return { success: true, user: json.data.user };
-    }
-    return { success: false, message: json.message || "Incorrect password." };
-  } catch (err) {
-    return { success: false, message: err.message || "Network error during authentication." };
-  }
-}
-
-/** Central API caller with JWT header and error handling */
+/** Central API caller with JWT header, session expiration detection and error handling */
 async function apiRequest(endpoint, options = {}) {
-  let token = await getAuthToken();
+  const token = getAuthToken();
   const headers = {
     'Content-Type': 'application/json',
     ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
     ...(options.headers || {})
   };
 
-  let res = await fetch(`${CONFIG.API_BASE}${endpoint}`, {
+  const res = await fetch(`${CONFIG.API_BASE}${endpoint}`, {
     ...options,
     headers
   });
 
-  // If token is expired or rejected, refresh and retry once
-  if (res.status === 401 && token) {
-    cachedAuthToken = null;
-    localStorage.removeItem("medstock_auth_token");
-    token = await getAuthToken();
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-      res = await fetch(`${CONFIG.API_BASE}${endpoint}`, {
-        ...options,
-        headers
-      });
+  if (res.status === 401) {
+    console.warn("Session expired or unauthorized request to:", endpoint);
+    if (!endpoint.startsWith('/auth/login') && !endpoint.startsWith('/auth/signup') && !endpoint.startsWith('/auth/me')) {
+      handleLogout("Your session has expired. Please sign in again.");
     }
   }
 
@@ -3887,134 +3837,321 @@ async function go(screenId) {
   }
 }
 
-let modalPendingUserId = null;
+/* -------------------------------------------------------------
+   Authentication & Session Controller
+   ------------------------------------------------------------- */
 
-function openUserSwitchModal(targetUserId, users) {
-  const targetUser = users.find(u => Number(u.user_id) === Number(targetUserId));
-  if (!targetUser) return;
+window.switchAuthTab = function(tab) {
+  const loginTab = $("#authTabLogin");
+  const signupTab = $("#authTabSignup");
+  const loginForm = $("#loginForm");
+  const signupForm = $("#signupForm");
+  const loginErr = $("#loginError");
+  const signupErr = $("#signupError");
 
-  modalPendingUserId = Number(targetUserId);
+  if (loginErr) loginErr.style.display = "none";
+  if (signupErr) signupErr.style.display = "none";
 
-  const modal = $("#authSwitchModal");
-  const pwdInput = $("#authSwitchPassword");
-  const errDiv = $("#authSwitchError");
-  const badge = $("#authTargetUserBadge");
+  if (tab === "signup") {
+    if (loginTab) loginTab.classList.remove("on");
+    if (signupTab) signupTab.classList.add("on");
+    if (loginForm) loginForm.style.display = "none";
+    if (signupForm) signupForm.style.display = "flex";
+    setTimeout(() => { const el = $("#signupName"); if (el) el.focus(); }, 50);
+  } else {
+    if (signupTab) signupTab.classList.remove("on");
+    if (loginTab) loginTab.classList.add("on");
+    if (signupForm) signupForm.style.display = "none";
+    if (loginForm) loginForm.style.display = "flex";
+    setTimeout(() => { const el = $("#loginEmail"); if (el) el.focus(); }, 50);
+  }
+};
 
-  badge.innerHTML = `
-    <div>
-      <div class="auth-target-name">${esc(targetUser.user_name || targetUser.name)}</div>
-      <div class="auth-target-email">${esc(targetUser.email || 'System Staff User')}</div>
-    </div>
-    <span class="role-pill ${(targetUser.role || '').toLowerCase()}">${esc(targetUser.role || 'Staff')}</span>
-  `;
+window.togglePasswordVisibility = function(inputId, btn) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  if (input.type === "password") {
+    input.type = "text";
+    if (btn) btn.textContent = "🙈";
+  } else {
+    input.type = "password";
+    if (btn) btn.textContent = "👁️";
+  }
+};
 
-  pwdInput.value = "";
-  pwdInput.type = "password";
-  errDiv.style.display = "none";
-  errDiv.textContent = "";
+function showAuthPortal(tab = "login", errorMsg = null) {
+  const portal = $("#authPortal");
+  const layout = $("#appLayout");
+  const userBox = $("#activeUserBox");
 
-  const toggleBtn = $("#authTogglePwdBtn");
-  if (toggleBtn) toggleBtn.textContent = "👁️";
+  if (portal) portal.style.display = "flex";
+  if (layout) layout.style.display = "none";
+  if (userBox) userBox.style.display = "none";
 
-  modal.style.display = "flex";
-  setTimeout(() => pwdInput.focus(), 60);
+  window.switchAuthTab(tab);
+
+  if (errorMsg) {
+    const errEl = tab === "signup" ? $("#signupError") : $("#loginError");
+    if (errEl) {
+      errEl.textContent = errorMsg;
+      errEl.style.display = "block";
+    }
+  }
 }
 
-function closeUserSwitchModal() {
-  const modal = $("#authSwitchModal");
-  if (modal) modal.style.display = "none";
-  modalPendingUserId = null;
-  // Revert dropdown selection to current active user
-  const select = $("#currentUserSelect");
-  if (select) select.value = currentLoggedInUserId;
+function hideAuthPortal() {
+  const portal = $("#authPortal");
+  const layout = $("#appLayout");
+
+  if (portal) portal.style.display = "none";
+  if (layout) layout.style.display = "flex";
 }
 
-function initAuthModal() {
-  const modal = $("#authSwitchModal");
-  const form = $("#authSwitchForm");
-  const closeBtn = $("#authModalCloseBtn");
-  const cancelBtn = $("#authModalCancelBtn");
-  const togglePwdBtn = $("#authTogglePwdBtn");
-  const pwdInput = $("#authSwitchPassword");
-  const submitBtn = $("#authModalSubmitBtn");
-  const errDiv = $("#authSwitchError");
+function updateActiveUserChip(user) {
+  const box = $("#activeUserBox");
+  const nameEl = $("#activeUserName");
+  const roleEl = $("#activeUserRole");
+  const avatarEl = $("#activeUserAvatar");
 
-  if (!modal || !form) return;
+  if (!box || !user) return;
 
-  if (closeBtn) closeBtn.onclick = closeUserSwitchModal;
-  if (cancelBtn) cancelBtn.onclick = closeUserSwitchModal;
+  if (nameEl) nameEl.textContent = user.name || user.user_name || "Authorized Staff";
+  if (roleEl) {
+    const r = (user.role || "pharmacist").toUpperCase();
+    roleEl.textContent = r;
+    roleEl.className = `role-pill ${(user.role || '').toLowerCase()}`;
+  }
+  if (avatarEl) {
+    const initial = (user.name || user.user_name || "U").trim().charAt(0).toUpperCase();
+    avatarEl.textContent = initial;
+  }
+  box.style.display = "flex";
+}
 
-  modal.onclick = e => {
-    if (e.target === modal) closeUserSwitchModal();
-  };
+async function checkSession() {
+  const token = getAuthToken();
+  if (!token) return false;
 
-  if (togglePwdBtn) {
-    togglePwdBtn.onclick = () => {
-      if (pwdInput.type === "password") {
-        pwdInput.type = "text";
-        togglePwdBtn.textContent = "🙈";
-      } else {
-        pwdInput.type = "password";
-        togglePwdBtn.textContent = "👁️";
+  try {
+    const res = await fetch(`${CONFIG.API_BASE}/auth/me`, {
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`
+      }
+    });
+
+    if (!res.ok) {
+      await handleLogout();
+      return false;
+    }
+
+    const json = await res.json();
+    if (json.success && json.data) {
+      currentLoggedInUser = json.data;
+      currentLoggedInUserId = json.data.user_id;
+      localStorage.setItem("medstock_active_user", currentLoggedInUserId);
+      updateActiveUserChip(currentLoggedInUser);
+      return true;
+    }
+  } catch (err) {
+    console.warn("Session verification error:", err.message);
+  }
+
+  await handleLogout();
+  return false;
+}
+
+window.handleLogout = async function(reasonMsg) {
+  const token = getAuthToken();
+  if (token) {
+    try {
+      await fetch(`${CONFIG.API_BASE}/auth/logout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }
+      });
+    } catch (e) {
+      // Best effort
+    }
+  }
+
+  cachedAuthToken = null;
+  currentLoggedInUser = null;
+  currentLoggedInUserId = null;
+  localStorage.removeItem("medstock_auth_token");
+  localStorage.removeItem("medstock_active_user");
+
+  showAuthPortal("login", reasonMsg || null);
+  if (reasonMsg) {
+    toast(reasonMsg, true);
+  }
+};
+
+function initAuthPortal() {
+  const loginForm = $("#loginForm");
+  const signupForm = $("#signupForm");
+  const logoutBtn = $("#logoutBtn");
+
+  if (logoutBtn) {
+    logoutBtn.onclick = () => {
+      window.handleLogout("You have signed out of your session.");
+    };
+  }
+
+  if (loginForm) {
+    loginForm.onsubmit = async e => {
+      e.preventDefault();
+      const emailInput = $("#loginEmail");
+      const pwdInput = $("#loginPassword");
+      const submitBtn = $("#loginSubmitBtn");
+      const errBanner = $("#loginError");
+
+      if (!emailInput || !pwdInput) return;
+      const email = emailInput.value.trim();
+      const password = pwdInput.value;
+
+      if (!email || !password) return;
+
+      submitBtn.disabled = true;
+      const prevText = submitBtn.innerHTML;
+      submitBtn.innerHTML = "<span>Signing in...</span>";
+      if (errBanner) errBanner.style.display = "none";
+
+      try {
+        const res = await fetch(`${CONFIG.API_BASE}/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password })
+        });
+
+        const json = await res.json();
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = prevText;
+
+        if (json.success && json.data && json.data.token) {
+          cachedAuthToken = json.data.token;
+          currentLoggedInUser = json.data.user;
+          currentLoggedInUserId = json.data.user.user_id;
+
+          localStorage.setItem("medstock_auth_token", cachedAuthToken);
+          localStorage.setItem("medstock_active_user", currentLoggedInUserId);
+
+          updateActiveUserChip(currentLoggedInUser);
+          hideAuthPortal();
+          buildNav();
+          await go("Dashboard");
+          toast(`Welcome back, ${currentLoggedInUser.name}!`);
+        } else {
+          if (errBanner) {
+            errBanner.textContent = json.message || "Invalid email or password.";
+            errBanner.style.display = "block";
+          }
+          pwdInput.select();
+        }
+      } catch (err) {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = prevText;
+        if (errBanner) {
+          errBanner.textContent = "Connection error. Ensure backend server is running.";
+          errBanner.style.display = "block";
+        }
       }
     };
   }
 
-  form.onsubmit = async e => {
-    e.preventDefault();
-    if (!modalPendingUserId) return;
-    const pwd = pwdInput.value;
-    if (!pwd) return;
+  if (signupForm) {
+    signupForm.onsubmit = async e => {
+      e.preventDefault();
+      const nameInput = $("#signupName");
+      const emailInput = $("#signupEmail");
+      const roleSelect = $("#signupRole");
+      const pwdInput = $("#signupPassword");
+      const confInput = $("#signupConfirmPassword");
+      const submitBtn = $("#signupSubmitBtn");
+      const errBanner = $("#signupError");
 
-    const prevText = submitBtn.textContent;
-    submitBtn.disabled = true;
-    submitBtn.textContent = "Verifying...";
-    errDiv.style.display = "none";
+      const name = nameInput.value.trim();
+      const email = emailInput.value.trim();
+      const role = roleSelect.value;
+      const password = pwdInput.value;
+      const confirmPassword = confInput.value;
 
-    const res = await authenticateUserSwitch(modalPendingUserId, pwd);
+      if (errBanner) errBanner.style.display = "none";
 
-    submitBtn.disabled = false;
-    submitBtn.textContent = prevText;
+      if (!name) {
+        if (errBanner) { errBanner.textContent = "Please enter your full name."; errBanner.style.display = "block"; }
+        nameInput.focus();
+        return;
+      }
 
-    if (res.success) {
-      toast(`Signed in as: ${res.user.name} (${res.user.role})`);
-      closeUserSwitchModal();
-      await refreshUserPicker();
-      buildNav();
-      await go(currentScreen);
-    } else {
-      errDiv.textContent = res.message || "Incorrect password.";
-      errDiv.style.display = "block";
-      pwdInput.select();
-    }
-  };
+      if (!email || !email.includes("@")) {
+        if (errBanner) { errBanner.textContent = "Please provide a valid email address."; errBanner.style.display = "block"; }
+        emailInput.focus();
+        return;
+      }
+
+      if (!password || password.length < 6) {
+        if (errBanner) { errBanner.textContent = "Password must be at least 6 characters long."; errBanner.style.display = "block"; }
+        pwdInput.focus();
+        return;
+      }
+
+      if (password !== confirmPassword) {
+        if (errBanner) { errBanner.textContent = "Passwords do not match. Please re-enter."; errBanner.style.display = "block"; }
+        confInput.select();
+        return;
+      }
+
+      submitBtn.disabled = true;
+      const prevText = submitBtn.innerHTML;
+      submitBtn.innerHTML = "<span>Creating account...</span>";
+
+      try {
+        const res = await fetch(`${CONFIG.API_BASE}/auth/signup`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, email, role, password })
+        });
+
+        const json = await res.json();
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = prevText;
+
+        if (json.success && json.data && json.data.token) {
+          cachedAuthToken = json.data.token;
+          currentLoggedInUser = json.data.user;
+          currentLoggedInUserId = json.data.user.user_id;
+
+          localStorage.setItem("medstock_auth_token", cachedAuthToken);
+          localStorage.setItem("medstock_active_user", currentLoggedInUserId);
+
+          updateActiveUserChip(currentLoggedInUser);
+          hideAuthPortal();
+          buildNav();
+          await go("Dashboard");
+          toast(`Account created successfully! Welcome, ${currentLoggedInUser.name}!`);
+        } else {
+          if (errBanner) {
+            errBanner.textContent = json.message || "Registration failed. Please try again.";
+            errBanner.style.display = "block";
+          }
+        }
+      } catch (err) {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = prevText;
+        if (errBanner) {
+          errBanner.textContent = "Network error while connecting to server.";
+          errBanner.style.display = "block";
+        }
+      }
+    };
+  }
 }
 
-/** Refresh Top Bar User Picker */
+/** Refresh Top Bar User Information */
 async function refreshUserPicker() {
-  const users = await getUsers();
-  const select = $("#currentUserSelect");
-  if (!select) return;
-
-  // Restore or default currentLoggedInUserId
-  const saved = localStorage.getItem("medstock_active_user");
-  if (saved && users.some(u => u.user_id === Number(saved))) {
-    currentLoggedInUserId = Number(saved);
-  } else if (!users.some(u => u.user_id === currentLoggedInUserId)) {
-    currentLoggedInUserId = users[0] ? users[0].user_id : 1;
+  if (currentLoggedInUser) {
+    updateActiveUserChip(currentLoggedInUser);
   }
-
-  select.innerHTML = users.map(u => `
-    <option value="${u.user_id}"${u.user_id === currentLoggedInUserId ? " selected" : ""}>
-      ${esc(u.user_name || u.name)} (${esc(u.role)})
-    </option>
-  `).join("");
-
-  select.onchange = () => {
-    const nextId = Number(select.value);
-    if (nextId === currentLoggedInUserId) return;
-    openUserSwitchModal(nextId, users);
-  };
 }
 
 /** Theme Controller (Dark mode by default, remembered in localStorage, follows system pref on 1st visit) */
@@ -4101,10 +4238,16 @@ document.addEventListener("DOMContentLoaded", async () => {
     };
   }
 
-  // Initialize theme, auth modal, user picker & render first view
+  // Initialize theme & auth portal
   initTheme();
-  initAuthModal();
-  await refreshUserPicker();
-  buildNav();
-  await go("Dashboard");
+  initAuthPortal();
+
+  const authenticated = await checkSession();
+  if (authenticated) {
+    hideAuthPortal();
+    buildNav();
+    await go("Dashboard");
+  } else {
+    showAuthPortal("login");
+  }
 });
