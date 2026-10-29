@@ -1230,6 +1230,7 @@ async function vDashboard() {
     const u = usableStock(m.medicine_id, bats);
     return u > 0 && u <= m.min_stock_level;
   });
+  const outOfStockMeds = meds.filter(m => usableStock(m.medicine_id, bats) === 0);
   const openAlerts = alerts.filter(a => (a.status || "").toUpperCase() === "OPEN");
 
   // Sorted list for near-expiry alert table
