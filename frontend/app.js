@@ -24,7 +24,7 @@
    PART 1: CONFIG & CONSTANTS
    ===================================================================== */
 const CONFIG = {
-  API_BASE: (typeof window !== 'undefined' && window.location.protocol === 'file:') ? "http://localhost:5000/api" : "/api",
+  API_BASE: (typeof window !== 'undefined' && (window.location.protocol === 'file:' || ['5500', '3000', '8080'].includes(window.location.port))) ? "http://localhost:5000/api" : "/api",
   STORAGE_KEY: "medstock_pharma_db_v4",
 
   MIN_DAYS_TO_ACCEPT: 30,                // Stock-in rejects batch expiring within 30 days
