@@ -92,7 +92,9 @@ function getTodayIso() {
 
 function parseIsoToDate(iso) {
   if (!iso) return new Date();
-  const parts = iso.split("-");
+  const clean = String(iso).split("T")[0];
+  const parts = clean.split("-");
+  if (parts.length < 3) return new Date(iso);
   return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
 }
 
@@ -105,30 +107,44 @@ function daysLeft(expiryIso) {
 
 /** Display date format: ALWAYS mm/dd/yy everywhere in the UI */
 function formatDisplayDate(isoStr) {
-  if (!isoStr || typeof isoStr !== "string") return "";
-  const parts = isoStr.split("-");
-  if (parts.length !== 3) return isoStr;
+  if (!isoStr) return "";
+  const clean = String(isoStr).split("T")[0];
+  const parts = clean.split("-");
+  if (parts.length !== 3) return clean;
   const mm = parts[1];
   const dd = parts[2];
   const yy = parts[0].slice(-2);
   return `${mm}/${dd}/${yy}`;
 }
 
-/** Parse and strictly validate calendar date from mm/dd/yy (2-digit year = 20yy) */
+/** Parse and strictly validate calendar date from mm/dd/yy (2-digit year = 20yy) or ISO YYYY-MM-DD */
 function parseDateInput(str) {
-  if (!str || typeof str !== "string") return { valid: false, msg: "Date is required (mm/dd/yy)." };
-  const s = str.trim();
-  const parts = s.split("/");
-  if (parts.length !== 3 || parts[0].length !== 2 || parts[1].length !== 2 || parts[2].length !== 2) {
+  if (!str) return { valid: false, msg: "Date is required (mm/dd/yy)." };
+  const s = String(str).trim();
+  let mm, dd, fullYear;
+
+  if (s.includes("-")) {
+    const parts = s.split("-");
+    if (parts.length === 3) {
+      fullYear = parseInt(parts[0], 10);
+      mm = parseInt(parts[1], 10);
+      dd = parseInt(parts[2], 10);
+    }
+  } else if (s.includes("/")) {
+    const parts = s.split("/");
+    if (parts.length === 3) {
+      mm = parseInt(parts[0], 10);
+      dd = parseInt(parts[1], 10);
+      let yy = parseInt(parts[2], 10);
+      fullYear = yy < 100 ? (2000 + yy) : yy;
+    }
+  }
+
+  if (!mm || !dd || !fullYear || isNaN(mm) || isNaN(dd) || isNaN(fullYear)) {
     return { valid: false, msg: "Use mm/dd/yy format (e.g. 08/15/27)." };
   }
-  const mm = parseInt(parts[0], 10);
-  const dd = parseInt(parts[1], 10);
-  const yy = parseInt(parts[2], 10);
-  if (isNaN(mm) || isNaN(dd) || isNaN(yy)) return { valid: false, msg: "Invalid date characters." };
   if (mm < 1 || mm > 12) return { valid: false, msg: "Month must be 01 to 12." };
 
-  const fullYear = 2000 + yy;
   const daysInMonth = new Date(fullYear, mm, 0).getDate();
   if (dd < 1 || dd > daysInMonth) {
     return { valid: false, msg: `Invalid day ${dd} for month ${mm} (max ${daysInMonth}).` };
@@ -188,11 +204,8 @@ const Validators = {
   name(val, fieldLabel = "Name") {
     if (!val || typeof val !== "string") return { valid: false, msg: `${fieldLabel} is required.` };
     const s = val.trim();
-    if (s.length < 2 || s.length > 60) return { valid: false, msg: `${fieldLabel} must be between 2 and 60 characters.` };
-    if (!/^[a-zA-Z0-9\s.\-'+&]+$/.test(s)) return { valid: false, msg: "Letters, digits, spaces and . - ' + & only." };
-    if (!/[aeiouyAEIOUY]/.test(s)) return { valid: false, msg: "Must contain at least one vowel." };
-    if (/[bcdfghjklmnpqrstvwxz]{5,}/i.test(s)) return { valid: false, msg: "Cannot contain 5 or more consecutive consonants." };
-    if (/([a-zA-Z])\1\1/.test(s)) return { valid: false, msg: "Cannot repeat the same letter 3+ times in a row." };
+    if (s.length < 2 || s.length > 80) return { valid: false, msg: `${fieldLabel} must be between 2 and 80 characters.` };
+    if (!/^[a-zA-Z0-9\s.\-'+&/()#:,]+$/.test(s)) return { valid: false, msg: "Contains invalid characters." };
     return { valid: true, msg: "" };
   },
 
@@ -249,6 +262,40 @@ const Validators = {
     return { valid: true, msg: "", value: n };
   }
 };
+
+/** Form validation UX tracker to prevent premature red borders and error messages */
+function createFormTracker(formEl) {
+  const touched = new Set();
+  let submitted = false;
+
+  formEl.querySelectorAll("input, select, textarea").forEach(el => {
+    const markTouched = () => {
+      const key = el.name || el.id;
+      if (key) touched.add(key);
+    };
+    el.addEventListener("blur", markTouched);
+    el.addEventListener("input", markTouched);
+    el.addEventListener("change", markTouched);
+  });
+
+  return {
+    isTouched(key) {
+      return submitted || touched.has(key);
+    },
+    markSubmitted() {
+      submitted = true;
+    },
+    reset() {
+      touched.clear();
+      submitted = false;
+    },
+    showError(key, errEl, inputEl, errMsg) {
+      const shouldDisplay = (submitted || touched.has(key)) && Boolean(errMsg);
+      if (errEl) errEl.textContent = shouldDisplay ? errMsg : "";
+      if (inputEl) inputEl.classList.toggle("is-invalid", shouldDisplay);
+    }
+  };
+}
 
 /* ---------------------------------------------------------------------
    SHARED BUSINESS STATUS RULES
@@ -646,10 +693,15 @@ async function getMedicines() {
     return data.map(m => ({
       ...m,
       medicine_name: m.name || m.medicine_name,
-      min_stock_level: m.reorder_level !== undefined ? m.reorder_level : m.min_stock_level
+      unit_price: Number(m.unit_price) || 0,
+      min_stock_level: m.reorder_level !== undefined ? (Number(m.reorder_level) || 0) : (Number(m.min_stock_level) || 0)
     }));
   } catch (err) {
-    return loadDB().medicines;
+    return (loadDB().medicines || []).map(m => ({
+      ...m,
+      unit_price: Number(m.unit_price) || 0,
+      min_stock_level: Number(m.min_stock_level) || 0
+    }));
   }
 }
 
@@ -1021,9 +1073,20 @@ async function deleteUser(id) {
 /** Batches */
 async function getBatches() {
   try {
-    return await apiRequest('/batches');
+    const list = await apiRequest('/batches');
+    return list.map(b => ({
+      ...b,
+      purchase_price: Number(b.purchase_price) || 0,
+      mrp: Number(b.mrp) || 0,
+      quantity: Number(b.quantity) || 0
+    }));
   } catch (err) {
-    return loadDB().batches;
+    return (loadDB().batches || []).map(b => ({
+      ...b,
+      purchase_price: Number(b.purchase_price) || 0,
+      mrp: Number(b.mrp) || 0,
+      quantity: Number(b.quantity) || 0
+    }));
   }
 }
 
@@ -1105,9 +1168,9 @@ async function dispenseMedicine(medicineId, qty, customerId, userId) {
     batch_id: i.batch_id,
     batch_no: i.batch_no,
     expiry_date: i.expiry_date,
-    quantity: i.qty,
-    unit_price: i.price,
-    subtotal: i.qty * i.price
+    quantity: Number(i.qty) || 0,
+    unit_price: Number(i.price) || 0,
+    subtotal: (Number(i.qty) || 0) * (Number(i.price) || 0)
   }));
 
   const allBatches = await getBatches();
@@ -1120,7 +1183,7 @@ async function dispenseMedicine(medicineId, qty, customerId, userId) {
     user_name: res.dispensed_by || 'Pharmacist',
     medicine_name: res.items && res.items[0] ? res.items[0].medicine_name : 'Medicine',
     used,
-    total: res.total_amount,
+    total: Number(res.total_amount) || 0,
     remainingStock,
     min_stock_level: 50,
     isLow: remainingStock <= 50
@@ -1130,7 +1193,13 @@ async function dispenseMedicine(medicineId, qty, customerId, userId) {
 /** Sales log */
 async function getSales() {
   try {
-    return await apiRequest('/sales?details=true');
+    const list = await apiRequest('/sales?details=true');
+    return list.map(s => ({
+      ...s,
+      qty_sold: Number(s.qty_sold) || 0,
+      price: Number(s.price) || 0,
+      amount: Number(s.amount) || ((Number(s.qty_sold) || 0) * (Number(s.price) || 0))
+    }));
   } catch (err) {
     return loadDB().soldIn.map(si => ({
       sold_in_id: si.sold_in_id,
@@ -1139,9 +1208,9 @@ async function getSales() {
       customer_name: "Walk-in Customer",
       medicine_name: "Medicine",
       batch_no: "N/A",
-      qty_sold: si.qty_sold,
-      price: si.price,
-      amount: si.qty_sold * si.price,
+      qty_sold: Number(si.qty_sold) || 0,
+      price: Number(si.price) || 0,
+      amount: (Number(si.qty_sold) || 0) * (Number(si.price) || 0),
       dispensed_by: "System"
     }));
   }
@@ -1589,33 +1658,29 @@ function renderMedicinesTab(meds, mfrs, cats, bats, mfrMap, catMap) {
   const form = $("#medForm");
   const saveBtn = $("#medSaveBtn");
   const cancelBtn = $("#medCancelBtn");
+  const tracker = createFormTracker(form);
 
   // Live form validation
   function validateMedForm() {
     let valid = true;
     const vName = Validators.name(form.medicine_name.value, "Medicine name");
-    $("#err_med_name").textContent = vName.valid ? "" : vName.msg;
-    form.medicine_name.classList.toggle("is-invalid", !vName.valid);
+    tracker.showError("medicine_name", $("#err_med_name"), form.medicine_name, vName.valid ? "" : vName.msg);
     if (!vName.valid) valid = false;
 
     const catOk = Boolean(form.category_id.value);
-    $("#err_med_cat").textContent = catOk ? "" : "Category is required.";
-    form.category_id.classList.toggle("is-invalid", !catOk);
+    tracker.showError("category_id", $("#err_med_cat"), form.category_id, catOk ? "" : "Category is required.");
     if (!catOk) valid = false;
 
     const mfrOk = Boolean(form.manufacturer_id.value);
-    $("#err_med_mfr").textContent = mfrOk ? "" : "Manufacturer is required.";
-    form.manufacturer_id.classList.toggle("is-invalid", !mfrOk);
+    tracker.showError("manufacturer_id", $("#err_med_mfr"), form.manufacturer_id, mfrOk ? "" : "Manufacturer is required.");
     if (!mfrOk) valid = false;
 
     const vPrice = Validators.price(form.unit_price.value, 0, "Unit price");
-    $("#err_med_price").textContent = vPrice.valid ? "" : vPrice.msg;
-    form.unit_price.classList.toggle("is-invalid", !vPrice.valid);
+    tracker.showError("unit_price", $("#err_med_price"), form.unit_price, vPrice.valid ? "" : vPrice.msg);
     if (!vPrice.valid) valid = false;
 
     const vMin = Validators.integer(form.min_stock_level.value, 0, "Min stock level");
-    $("#err_med_min").textContent = vMin.valid ? "" : vMin.msg;
-    form.min_stock_level.classList.toggle("is-invalid", !vMin.valid);
+    tracker.showError("min_stock_level", $("#err_med_min"), form.min_stock_level, vMin.valid ? "" : vMin.msg);
     if (!vMin.valid) valid = false;
 
     saveBtn.disabled = !valid;
@@ -1670,6 +1735,7 @@ function renderMedicinesTab(meds, mfrs, cats, bats, mfrMap, catMap) {
   // Form Submit
   form.onsubmit = async e => {
     e.preventDefault();
+    tracker.markSubmitted();
     if (!validateMedForm()) return;
     const medId = form.medicine_id.value;
 
@@ -1718,6 +1784,7 @@ function renderMedicinesTab(meds, mfrs, cats, bats, mfrMap, catMap) {
       form.unit_price.value = target.unit_price;
       form.min_stock_level.value = target.min_stock_level;
       cancelBtn.style.display = "inline-flex";
+      tracker.reset();
       validateMedForm();
       form.scrollIntoView({ behavior: "smooth" });
     }
@@ -1740,6 +1807,7 @@ function renderMedicinesTab(meds, mfrs, cats, bats, mfrMap, catMap) {
     form.medicine_id.value = "";
     $("#medFormTitle").textContent = "Add New Medicine";
     cancelBtn.style.display = "none";
+    tracker.reset();
     validateMedForm();
   };
 }
@@ -1778,17 +1846,16 @@ function renderManufacturersTab(mfrs, meds) {
   const form = $("#mfrForm");
   const saveBtn = $("#mfrSaveBtn");
   const cancelBtn = $("#mfrCancelBtn");
+  const tracker = createFormTracker(form);
 
   function validateMfrForm() {
     let valid = true;
     const vName = Validators.name(form.name.value, "Manufacturer name");
-    $("#err_mfr_name").textContent = vName.valid ? "" : vName.msg;
-    form.name.classList.toggle("is-invalid", !vName.valid);
+    tracker.showError("name", $("#err_mfr_name"), form.name, vName.valid ? "" : vName.msg);
     if (!vName.valid) valid = false;
 
     const vAddr = Validators.address(form.address.value);
-    $("#err_mfr_addr").textContent = vAddr.valid ? "" : vAddr.msg;
-    form.address.classList.toggle("is-invalid", !vAddr.valid);
+    tracker.showError("address", $("#err_mfr_addr"), form.address, vAddr.valid ? "" : vAddr.msg);
     if (!vAddr.valid) valid = false;
 
     saveBtn.disabled = !valid;
@@ -1819,6 +1886,7 @@ function renderManufacturersTab(mfrs, meds) {
 
   form.onsubmit = async e => {
     e.preventDefault();
+    tracker.markSubmitted();
     if (!validateMfrForm()) return;
     const mId = form.manufacturer_id.value;
     try {
@@ -1846,6 +1914,7 @@ function renderManufacturersTab(mfrs, meds) {
       form.name.value = mf.name;
       form.address.value = mf.address;
       cancelBtn.style.display = "inline-flex";
+      tracker.reset();
       validateMfrForm();
       form.scrollIntoView({ behavior: "smooth" });
     }
@@ -1867,6 +1936,7 @@ function renderManufacturersTab(mfrs, meds) {
     form.manufacturer_id.value = "";
     $("#mfrFormTitle").textContent = "Add Manufacturer";
     cancelBtn.style.display = "none";
+    tracker.reset();
     validateMfrForm();
   };
 }
@@ -1899,11 +1969,11 @@ function renderCategoriesTab(cats, meds) {
   const form = $("#catForm");
   const saveBtn = $("#catSaveBtn");
   const cancelBtn = $("#catCancelBtn");
+  const tracker = createFormTracker(form);
 
   function validateCatForm() {
     const vName = Validators.name(form.category_name.value, "Category name");
-    $("#err_cat_name").textContent = vName.valid ? "" : vName.msg;
-    form.category_name.classList.toggle("is-invalid", !vName.valid);
+    tracker.showError("category_name", $("#err_cat_name"), form.category_name, vName.valid ? "" : vName.msg);
     saveBtn.disabled = !vName.valid;
     return vName.valid;
   }
@@ -1931,6 +2001,7 @@ function renderCategoriesTab(cats, meds) {
 
   form.onsubmit = async e => {
     e.preventDefault();
+    tracker.markSubmitted();
     if (!validateCatForm()) return;
     const cId = form.category_id.value;
     try {
@@ -1957,6 +2028,7 @@ function renderCategoriesTab(cats, meds) {
       form.category_id.value = cat.category_id;
       form.category_name.value = cat.category_name;
       cancelBtn.style.display = "inline-flex";
+      tracker.reset();
       validateCatForm();
       form.scrollIntoView({ behavior: "smooth" });
     }
@@ -1978,6 +2050,7 @@ function renderCategoriesTab(cats, meds) {
     form.category_id.value = "";
     $("#catFormTitle").textContent = "Add Category";
     cancelBtn.style.display = "none";
+    tracker.reset();
     validateCatForm();
   };
 }
@@ -2033,23 +2106,21 @@ async function vSuppliers() {
   const form = $("#supForm");
   const saveBtn = $("#supSaveBtn");
   const cancelBtn = $("#supCancelBtn");
+  const tracker = createFormTracker(form);
   attachPhoneMask(form.phone);
 
   function validateSupForm() {
     let valid = true;
     const vName = Validators.name(form.supplier_name.value, "Supplier name");
-    $("#err_sup_name").textContent = vName.valid ? "" : vName.msg;
-    form.supplier_name.classList.toggle("is-invalid", !vName.valid);
+    tracker.showError("supplier_name", $("#err_sup_name"), form.supplier_name, vName.valid ? "" : vName.msg);
     if (!vName.valid) valid = false;
 
     const vPhone = Validators.phone(form.phone.value);
-    $("#err_sup_phone").textContent = vPhone.valid ? "" : vPhone.msg;
-    form.phone.classList.toggle("is-invalid", !vPhone.valid);
+    tracker.showError("phone", $("#err_sup_phone"), form.phone, vPhone.valid ? "" : vPhone.msg);
     if (!vPhone.valid) valid = false;
 
     const vAddr = Validators.address(form.address.value);
-    $("#err_sup_addr").textContent = vAddr.valid ? "" : vAddr.msg;
-    form.address.classList.toggle("is-invalid", !vAddr.valid);
+    tracker.showError("address", $("#err_sup_addr"), form.address, vAddr.valid ? "" : vAddr.msg);
     if (!vAddr.valid) valid = false;
 
     saveBtn.disabled = !valid;
@@ -2089,6 +2160,7 @@ async function vSuppliers() {
 
   form.onsubmit = async e => {
     e.preventDefault();
+    tracker.markSubmitted();
     if (!validateSupForm()) return;
     const sId = form.supplier_id.value;
     try {
@@ -2125,6 +2197,7 @@ async function vSuppliers() {
       form.phone.value = s.phone;
       form.address.value = s.address;
       cancelBtn.style.display = "inline-flex";
+      tracker.reset();
       validateSupForm();
       form.scrollIntoView({ behavior: "smooth" });
     }
@@ -2146,6 +2219,7 @@ async function vSuppliers() {
     form.supplier_id.value = "";
     $("#supFormTitle").textContent = "Add New Supplier";
     cancelBtn.style.display = "none";
+    tracker.reset();
     validateSupForm();
   };
 }
@@ -2201,18 +2275,17 @@ async function vCustomers() {
   const form = $("#custForm");
   const saveBtn = $("#custSaveBtn");
   const cancelBtn = $("#custCancelBtn");
+  const tracker = createFormTracker(form);
   attachPhoneMask(form.phone);
 
   function validateCustForm() {
     let valid = true;
     const vName = Validators.name(form.customer_name.value, "Customer name");
-    $("#err_cust_name").textContent = vName.valid ? "" : vName.msg;
-    form.customer_name.classList.toggle("is-invalid", !vName.valid);
+    tracker.showError("customer_name", $("#err_cust_name"), form.customer_name, vName.valid ? "" : vName.msg);
     if (!vName.valid) valid = false;
 
     const vPhone = Validators.phone(form.phone.value);
-    $("#err_cust_phone").textContent = vPhone.valid ? "" : vPhone.msg;
-    form.phone.classList.toggle("is-invalid", !vPhone.valid);
+    tracker.showError("phone", $("#err_cust_phone"), form.phone, vPhone.valid ? "" : vPhone.msg);
     if (!vPhone.valid) valid = false;
 
     const vEmail = Validators.email(form.email.value);
@@ -2222,8 +2295,7 @@ async function vCustomers() {
       const dupEmail = custs.some(c => c.customer_id !== editingId && (c.email || "").toLowerCase() === vEmail.value.toLowerCase());
       if (dupEmail) emailErr = "This email is already registered to another customer.";
     }
-    $("#err_cust_email").textContent = emailErr;
-    form.email.classList.toggle("is-invalid", Boolean(emailErr));
+    tracker.showError("email", $("#err_cust_email"), form.email, emailErr);
     if (emailErr) valid = false;
 
     saveBtn.disabled = !valid;
@@ -2265,6 +2337,7 @@ async function vCustomers() {
 
   form.onsubmit = async e => {
     e.preventDefault();
+    tracker.markSubmitted();
     if (!validateCustForm()) return;
     const cId = form.customer_id.value;
     try {
@@ -2301,6 +2374,7 @@ async function vCustomers() {
       form.phone.value = c.phone;
       form.email.value = c.email || "";
       cancelBtn.style.display = "inline-flex";
+      tracker.reset();
       validateCustForm();
       form.scrollIntoView({ behavior: "smooth" });
     }
@@ -2322,6 +2396,7 @@ async function vCustomers() {
     form.customer_id.value = "";
     $("#custFormTitle").textContent = "Add New Customer";
     cancelBtn.style.display = "none";
+    tracker.reset();
     validateCustForm();
   };
 }
@@ -2428,6 +2503,7 @@ async function vStockIn() {
 
   const form = $("#stockInForm");
   const saveBtn = $("#stockInBtn");
+  const tracker = createFormTracker(form);
 
   // Attach masks
   attachDateInputMask(form.mfg_date);
@@ -2454,14 +2530,12 @@ async function vStockIn() {
 
     // Medicine
     const medOk = Boolean(form.medicine_id.value);
-    $("#err_stk_med").textContent = medOk ? "" : "Select a medicine.";
-    form.medicine_id.classList.toggle("is-invalid", !medOk);
+    tracker.showError("medicine_id", $("#err_stk_med"), form.medicine_id, medOk ? "" : "Select a medicine.");
     if (!medOk) valid = false;
 
     // Supplier
     const supOk = Boolean(form.supplier_id.value);
-    $("#err_stk_sup").textContent = supOk ? "" : "Select a supplier.";
-    form.supplier_id.classList.toggle("is-invalid", !supOk);
+    tracker.showError("supplier_id", $("#err_stk_sup"), form.supplier_id, supOk ? "" : "Select a supplier.");
     if (!supOk) valid = false;
 
     // Batch No
@@ -2474,8 +2548,7 @@ async function vStockIn() {
       );
       if (isDup) batchErr = "This batch number already exists for this medicine.";
     }
-    $("#err_stk_batch").textContent = batchErr;
-    form.batch_no.classList.toggle("is-invalid", Boolean(batchErr));
+    tracker.showError("batch_no", $("#err_stk_batch"), form.batch_no, batchErr);
     if (batchErr) valid = false;
 
     // Dates
@@ -2483,16 +2556,14 @@ async function vStockIn() {
     const pMfg = parseDateInput(form.mfg_date.value);
     let mfgErr = pMfg.valid ? "" : pMfg.msg;
     if (pMfg.valid && pMfg.iso > todayIso) mfgErr = "Manufacture date cannot be in the future.";
-    $("#err_stk_mfg").textContent = mfgErr;
-    form.mfg_date.classList.toggle("is-invalid", Boolean(mfgErr));
+    tracker.showError("mfg_date", $("#err_stk_mfg"), form.mfg_date, mfgErr);
     if (mfgErr) valid = false;
 
     const pPur = parseDateInput(form.purchase_date.value);
     let purErr = pPur.valid ? "" : pPur.msg;
     if (pPur.valid && pPur.iso > todayIso) purErr = "Purchase date cannot be in the future.";
     else if (pPur.valid && pMfg.valid && pPur.iso < pMfg.iso) purErr = "Purchase date cannot be before the manufacture date.";
-    $("#err_stk_pur").textContent = purErr;
-    form.purchase_date.classList.toggle("is-invalid", Boolean(purErr));
+    tracker.showError("purchase_date", $("#err_stk_pur"), form.purchase_date, purErr);
     if (purErr) valid = false;
 
     const pExp = parseDateInput(form.expiry_date.value);
@@ -2509,25 +2580,21 @@ async function vStockIn() {
         }
       }
     }
-    $("#err_stk_exp").textContent = expErr;
-    form.expiry_date.classList.toggle("is-invalid", Boolean(expErr));
+    tracker.showError("expiry_date", $("#err_stk_exp"), form.expiry_date, expErr);
     if (expErr) valid = false;
 
     // Price
     const vCost = Validators.price(form.purchase_price.value, 0, "Purchase price");
-    $("#err_stk_cost").textContent = vCost.valid ? "" : vCost.msg;
-    form.purchase_price.classList.toggle("is-invalid", !vCost.valid);
+    tracker.showError("purchase_price", $("#err_stk_cost"), form.purchase_price, vCost.valid ? "" : vCost.msg);
     if (!vCost.valid) valid = false;
 
     const vMrp = Validators.price(form.mrp.value, vCost.valid ? vCost.value : 0, "MRP");
-    $("#err_stk_mrp").textContent = vMrp.valid ? "" : vMrp.msg;
-    form.mrp.classList.toggle("is-invalid", !vMrp.valid);
+    tracker.showError("mrp", $("#err_stk_mrp"), form.mrp, vMrp.valid ? "" : vMrp.msg);
     if (!vMrp.valid) valid = false;
 
     // Qty
     const vQty = Validators.integer(form.quantity.value, 1, "Quantity");
-    $("#err_stk_qty").textContent = vQty.valid ? "" : vQty.msg;
-    form.quantity.classList.toggle("is-invalid", !vQty.valid);
+    tracker.showError("quantity", $("#err_stk_qty"), form.quantity, vQty.valid ? "" : vQty.msg);
     if (!vQty.valid) valid = false;
 
     saveBtn.disabled = !valid;
@@ -2562,6 +2629,7 @@ async function vStockIn() {
 
   form.onsubmit = async e => {
     e.preventDefault();
+    tracker.markSubmitted();
     if (!validateStockInForm()) return;
     try {
       await addBatch({
@@ -2681,8 +2749,10 @@ async function vDispense() {
   const saveBtn = $("#dispenseSubmitBtn");
   const medSelect = $("#dispMedSelect");
   const qtyInput = $("#dispQtyInput");
+  const custSelect = $("#dispCustomerSelect");
   const previewWrap = $("#fefoPreview");
   const resultWrap = $("#dispenseResultWrap");
+  const tracker = createFormTracker(form);
 
   // Quick customer toggle & form
   const qcWrap = $("#quickCustomerWrap");
@@ -2720,8 +2790,7 @@ async function vDispense() {
 
       // Refresh dropdown and select new customer
       const freshCusts = await getCustomers();
-      const sel = $("#dispCustomerSelect");
-      sel.innerHTML = `<option value="">-- Select Customer --</option>` +
+      custSelect.innerHTML = `<option value="">-- Select Customer --</option>` +
         options(freshCusts, "customer_id", c => `${c.customer_name} (${c.phone})`, newCust.customer_id);
       validateDispenseForm();
     } catch (err) {
@@ -2734,15 +2803,13 @@ async function vDispense() {
     let valid = true;
     previewWrap.innerHTML = "";
 
-    const custOk = Boolean($("#dispCustomerSelect").value);
-    $("#err_dsp_cust").textContent = custOk ? "" : "Select a customer.";
-    $("#dispCustomerSelect").classList.toggle("is-invalid", !custOk);
+    const custOk = Boolean(custSelect.value);
+    tracker.showError("customer_id", $("#err_dsp_cust"), custSelect, custOk ? "" : "Select a customer.");
     if (!custOk) valid = false;
 
     const medId = Number(medSelect.value);
     const medOk = Boolean(medId);
-    $("#err_dsp_med").textContent = medOk ? "" : "Select a medicine.";
-    medSelect.classList.toggle("is-invalid", !medOk);
+    tracker.showError("medicine_id", $("#err_dsp_med"), medSelect, medOk ? "" : "Select a medicine.");
     if (!medOk) valid = false;
 
     const vQty = Validators.integer(qtyInput.value, 1, "Quantity");
@@ -2782,21 +2849,21 @@ async function vDispense() {
       }
     }
 
-    $("#err_dsp_qty").textContent = qtyErr;
-    qtyInput.classList.toggle("is-invalid", Boolean(qtyErr));
+    tracker.showError("quantity", $("#err_dsp_qty"), qtyInput, qtyErr);
     if (qtyErr) valid = false;
 
     saveBtn.disabled = !valid;
     return valid;
   }
 
-  $("#dispCustomerSelect").onchange = validateDispenseForm;
+  custSelect.onchange = validateDispenseForm;
   medSelect.onchange = validateDispenseForm;
   qtyInput.oninput = validateDispenseForm;
   validateDispenseForm();
 
   form.onsubmit = async e => {
     e.preventDefault();
+    tracker.markSubmitted();
     if (!validateDispenseForm()) return;
     resultWrap.innerHTML = "";
 
@@ -3111,12 +3178,12 @@ async function vDisposal() {
   // Strictly filter batches: ONLY expired batches with quantity > 0
   const expiredBatches = bats.filter(b => daysLeft(b.expiry_date) < 0 && b.quantity > 0);
 
-  // Filter approvers: ONLY Admin and Pharmacist roles allowed
-  const eligibleApprovers = users.filter(u => u.role === "Admin" || u.role === "Pharmacist");
+  // Filter approvers: ONLY Admin and Pharmacist roles allowed (case-insensitive)
+  const eligibleApprovers = users.filter(u => ['admin', 'pharmacist'].includes((u.role || '').toLowerCase()));
 
   // Determine default approver
   const loggedInUser = users.find(u => u.user_id === currentLoggedInUserId);
-  const defaultApproverId = (loggedInUser && (loggedInUser.role === "Admin" || loggedInUser.role === "Pharmacist"))
+  const defaultApproverId = (loggedInUser && ['admin', 'pharmacist'].includes((loggedInUser.role || '').toLowerCase()))
     ? loggedInUser.user_id
     : (eligibleApprovers[0] ? eligibleApprovers[0].user_id : "");
 
@@ -3211,6 +3278,8 @@ async function vDisposal() {
   const bSelect = $("#dispBatchSelect");
   const qInput = $("#dispQty");
   const maxHint = $("#dispMaxHint");
+  const apprSelect = $("#dispApproverSelect");
+  const tracker = createFormTracker(form);
 
   bSelect.onchange = () => {
     const opt = bSelect.selectedOptions[0];
@@ -3226,8 +3295,7 @@ async function vDisposal() {
   function validateDisposalForm() {
     let valid = true;
     const bOk = Boolean(bSelect.value);
-    $("#err_dsp_batch").textContent = bOk ? "" : "Select an expired batch.";
-    bSelect.classList.toggle("is-invalid", !bOk);
+    tracker.showError("batch_id", $("#err_dsp_batch"), bSelect, bOk ? "" : "Select an expired batch.");
     if (!bOk) valid = false;
 
     const opt = bSelect.selectedOptions[0];
@@ -3238,17 +3306,15 @@ async function vDisposal() {
     if (vQty.valid && bOk && vQty.value > max) {
       qtyErr = `Quantity cannot exceed available stock (${max}).`;
     }
-    $("#err_dsp_dqty").textContent = qtyErr;
-    qInput.classList.toggle("is-invalid", Boolean(qtyErr));
+    tracker.showError("quantity", $("#err_dsp_dqty"), qInput, qtyErr);
     if (qtyErr) valid = false;
 
     const vReason = Validators.address(form.reason.value);
-    $("#err_dsp_reason").textContent = vReason.valid ? "" : "Reason must be 5 to 100 characters.";
-    form.reason.classList.toggle("is-invalid", !vReason.valid);
+    tracker.showError("reason", $("#err_dsp_reason"), form.reason, vReason.valid ? "" : "Reason must be 5 to 100 characters.");
     if (!vReason.valid) valid = false;
 
-    const apprOk = Boolean($("#dispApproverSelect").value);
-    $("#err_dsp_appr").textContent = apprOk ? "" : "Select an approving user.";
+    const apprOk = Boolean(apprSelect.value);
+    tracker.showError("approved_by_user_id", $("#err_dsp_appr"), apprSelect, apprOk ? "" : "Select an approving user.");
     if (!apprOk) valid = false;
 
     saveBtn.disabled = !valid;
@@ -3263,6 +3329,7 @@ async function vDisposal() {
 
   form.onsubmit = async e => {
     e.preventDefault();
+    tracker.markSubmitted();
     if (!validateDisposalForm()) return;
 
     if (!confirm("Confirm irreversible disposal of this expired medicine batch?")) return;
@@ -3445,16 +3512,16 @@ async function vUsers() {
   const form = $("#userForm");
   const saveBtn = $("#userSaveBtn");
   const cancelBtn = $("#userCancelBtn");
+  const tracker = createFormTracker(form);
 
   function validateUserForm() {
     let valid = true;
     const vName = Validators.name(form.user_name.value, "User name");
-    $("#err_usr_name").textContent = vName.valid ? "" : vName.msg;
-    form.user_name.classList.toggle("is-invalid", !vName.valid);
+    tracker.showError("user_name", $("#err_usr_name"), form.user_name, vName.valid ? "" : vName.msg);
     if (!vName.valid) valid = false;
 
-    const roleOk = CONFIG.ROLES.includes(form.role.value);
-    $("#err_usr_role").textContent = roleOk ? "" : "Select a valid role.";
+    const roleOk = CONFIG.ROLES.some(r => r.toLowerCase() === form.role.value.toLowerCase());
+    tracker.showError("role", $("#err_usr_role"), form.role, roleOk ? "" : "Select a valid role.");
     if (!roleOk) valid = false;
 
     saveBtn.disabled = !valid;
@@ -3467,8 +3534,9 @@ async function vUsers() {
   function drawUsersTable() {
     const rows = users.map(u => {
       let roleCls = "storekeeper";
-      if (u.role === "Admin") roleCls = "admin";
-      else if (u.role === "Pharmacist") roleCls = "pharmacist";
+      const r = (u.role || "").toLowerCase();
+      if (r === "admin") roleCls = "admin";
+      else if (r === "pharmacist") roleCls = "pharmacist";
 
       return {
         cells: [
@@ -3491,6 +3559,7 @@ async function vUsers() {
 
   form.onsubmit = async e => {
     e.preventDefault();
+    tracker.markSubmitted();
     if (!validateUserForm()) return;
     const uId = form.user_id.value;
     try {
@@ -3523,8 +3592,10 @@ async function vUsers() {
       $("#userFormTitle").textContent = "Edit User";
       form.user_id.value = u.user_id;
       form.user_name.value = u.user_name;
-      form.role.value = u.role;
+      const matchedRole = CONFIG.ROLES.find(r => r.toLowerCase() === (u.role || "").toLowerCase()) || u.role;
+      form.role.value = matchedRole;
       cancelBtn.style.display = "inline-flex";
+      tracker.reset();
       validateUserForm();
       form.scrollIntoView({ behavior: "smooth" });
     }
@@ -3547,6 +3618,7 @@ async function vUsers() {
     form.user_id.value = "";
     $("#userFormTitle").textContent = "Add New User";
     cancelBtn.style.display = "none";
+    tracker.reset();
     validateUserForm();
   };
 }
@@ -3594,7 +3666,27 @@ async function go(screenId) {
   };
 
   if (views[screenId]) {
-    await views[screenId]();
+    try {
+      await views[screenId]();
+    } catch (err) {
+      console.error(`Error loading screen ${screenId}:`, err);
+      const viewEl = $("#view");
+      if (viewEl) {
+        viewEl.innerHTML = `
+          <div class="panel" style="max-width: 600px; margin: 40px auto; text-align: center; padding: 32px 24px;">
+            <div style="font-size: 2.8rem; margin-bottom: 12px;">⚠️</div>
+            <h2 style="margin-bottom: 8px;">Notice: Could Not Load ${esc(screenId)}</h2>
+            <p class="note" style="margin-bottom: 24px; font-size: 13.5px; color: var(--tx-muted);">
+              ${esc(err.message || String(err))}
+            </p>
+            <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+              <button class="btn primary" onclick="go('${esc(screenId)}')">Retry Page</button>
+              <button class="btn ghost" onclick="go('Dashboard')">Return to Dashboard</button>
+            </div>
+          </div>
+        `;
+      }
+    }
   }
 }
 
