@@ -202,6 +202,18 @@ const deleteUser = asyncHandler(async (req, res) => {
     });
   }
 
+  // Check user existence
+  const [userRows] = await pool.query('SELECT * FROM users WHERE user_id = ?', [userId]);
+  if (userRows.length === 0) {
+    return res.status(404).json({ success: false, message: 'User not found' });
+  }
+  const targetUser = userRows[0];
+
+  // Reassign any historical sales and disposals linked to this user to primary admin #1
+  // so financial logs and disposal audit trails remain unbroken
+  await pool.query('UPDATE sale SET created_by = 1 WHERE created_by = ?', [userId]);
+  await pool.query('UPDATE disposal SET approved_by = 1 WHERE approved_by = ?', [userId]);
+
   const [result] = await pool.query('DELETE FROM users WHERE user_id = ?', [userId]);
   if (result.affectedRows === 0) {
     return res.status(404).json({ success: false, message: 'User not found' });
@@ -209,7 +221,7 @@ const deleteUser = asyncHandler(async (req, res) => {
 
   res.json({
     success: true,
-    message: 'User deleted successfully'
+    message: `User "${targetUser.name}" deleted successfully`
   });
 });
 

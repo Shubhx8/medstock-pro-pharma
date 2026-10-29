@@ -1075,19 +1075,13 @@ async function updateUser(id, u) {
 }
 
 async function deleteUser(id) {
-  try {
-    await apiRequest(`/auth/users/${id}`, {
-      method: 'DELETE'
-    });
-  } catch (err) {
-    console.warn("Backend user deletion error:", err.message);
-    if (err.message && (err.message.includes('administrator') || err.message.includes('active session'))) {
-      throw err;
-    }
-  }
+  const res = await apiRequest(`/auth/users/${id}`, {
+    method: 'DELETE'
+  });
   const db = loadDB();
   db.users = db.users.filter(x => x.user_id !== Number(id));
   saveDB(db);
+  return res;
 }
 
 /** Batches */
@@ -3579,10 +3573,11 @@ async function vSales() {
    --------------------------------------------------------------------- */
 async function vUsers() {
   const users = await getUsers();
+  const activeUser = users.find(u => Number(u.user_id) === Number(currentLoggedInUserId)) || users[0];
+  const isAdmin = activeUser && String(activeUser.role || '').toLowerCase() === 'admin';
 
-  show(
-    header("Users & Access Control", "Manage personnel permissions for Pharmacists, Store Keepers, and Administrators") +
-    `<div class="panel">
+  const formPanelHtml = isAdmin ? `
+    <div class="panel">
       <h2 id="userFormTitle">Add New User</h2>
       <form class="f" id="userForm">
         <input type="hidden" name="user_id">
@@ -3607,13 +3602,65 @@ async function vUsers() {
           <button type="button" class="btn ghost" id="userCancelBtn" style="display:none">Cancel</button>
         </div>
       </form>
-    </div>
-
+    </div>` : `
     <div class="panel">
+      <div style="display:flex; align-items:center; gap:12px; color:var(--text-muted);">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        <div>
+          <h3 style="margin:0 0 4px 0; font-size:14px; font-weight:600; color:var(--text);">Read-Only Staff Directory</h3>
+          <p style="margin:0; font-size:13px;">Only administrators are authorized to register, edit, or delete system user accounts.</p>
+        </div>
+      </div>
+    </div>`;
+
+  show(
+    header("Users & Access Control", "Manage personnel permissions for Pharmacists, Store Keepers, and Administrators") +
+    formPanelHtml +
+    `<div class="panel">
       <h2>Registered System Users</h2>
       <div id="usersTableWrap"></div>
     </div>`
   );
+
+  function drawUsersTable() {
+    const rows = users.map(u => {
+      let roleCls = "storekeeper";
+      const r = (u.role || "").toLowerCase();
+      if (r === "admin") roleCls = "admin";
+      else if (r === "pharmacist") roleCls = "pharmacist";
+
+      const isMe = Number(u.user_id) === Number(currentLoggedInUserId);
+      const isPrimaryAdmin = Number(u.user_id) === 1;
+
+      const cells = [
+        `#${u.user_id}`,
+        `<b>${esc(u.user_name || u.name)}</b>`,
+        `<span class="role-pill ${roleCls}">${esc(u.role)}</span>`,
+        isMe ?
+          '<span class="tag ok">Active Session</span>' :
+          '<span class="tag neutral">Offline</span>'
+      ];
+
+      if (isAdmin) {
+        cells.push(
+          `<button class="btn sm ghost" data-edit-usr="${u.user_id}">Edit</button> ` +
+          (isPrimaryAdmin || isMe ? '' : `<button class="btn sm del" data-del-usr="${u.user_id}">Delete</button>`)
+        );
+      }
+
+      return { cells };
+    });
+
+    const headers = isAdmin
+      ? ["User ID", "User Name", "Assigned Role", "Status", "Actions"]
+      : ["User ID", "User Name", "Assigned Role", "Status"];
+
+    $("#usersTableWrap").innerHTML = table(headers, rows);
+  }
+
+  drawUsersTable();
+
+  if (!isAdmin) return; // Non-admin users cannot edit or delete users
 
   const form = $("#userForm");
   const saveBtn = $("#userSaveBtn");
@@ -3636,35 +3683,6 @@ async function vUsers() {
 
   form.querySelectorAll("input, select").forEach(el => el.addEventListener("input", validateUserForm));
   validateUserForm();
-
-  function drawUsersTable() {
-    const rows = users.map(u => {
-      let roleCls = "storekeeper";
-      const r = (u.role || "").toLowerCase();
-      if (r === "admin") roleCls = "admin";
-      else if (r === "pharmacist") roleCls = "pharmacist";
-
-      const isMe = Number(u.user_id) === Number(currentLoggedInUserId);
-      const isPrimaryAdmin = Number(u.user_id) === 1;
-
-      return {
-        cells: [
-          `#${u.user_id}`,
-          `<b>${esc(u.user_name || u.name)}</b>`,
-          `<span class="role-pill ${roleCls}">${esc(u.role)}</span>`,
-          isMe ?
-            '<span class="tag ok">Active Session</span>' :
-            '<span class="tag neutral">Offline</span>',
-          `<button class="btn sm ghost" data-edit-usr="${u.user_id}">Edit</button> ` +
-          (isPrimaryAdmin || isMe ? '' : `<button class="btn sm del" data-del-usr="${u.user_id}">Delete</button>`)
-        ]
-      };
-    });
-
-    $("#usersTableWrap").innerHTML = table(["User ID", "User Name", "Assigned Role", "Status", "Actions"], rows);
-  }
-
-  drawUsersTable();
 
   form.onsubmit = async e => {
     e.preventDefault();
