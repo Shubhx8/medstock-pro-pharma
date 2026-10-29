@@ -73,8 +73,152 @@ const getAllUsers = asyncHandler(async (req, res) => {
   });
 });
 
+// POST /api/auth/users
+const createUser = asyncHandler(async (req, res) => {
+  const { name, user_name, role, email, password } = req.body;
+  const userName = (name || user_name || '').trim();
+
+  if (!userName) {
+    return res.status(400).json({
+      success: false,
+      message: 'User name is required'
+    });
+  }
+
+  // Generate unique email if omitted
+  let userEmail = email ? email.trim().toLowerCase() : null;
+  if (!userEmail) {
+    const slug = userName.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const randSuffix = Math.floor(1000 + Math.random() * 9000);
+    userEmail = `${slug || 'user'}_${Date.now()}_${randSuffix}@pharmacy.local`;
+  }
+
+  // Check email uniqueness
+  const [existing] = await pool.query('SELECT user_id FROM users WHERE email = ?', [userEmail]);
+  if (existing.length > 0) {
+    return res.status(400).json({
+      success: false,
+      message: 'A user with this email address already exists'
+    });
+  }
+
+  // Hash password (default: admin123)
+  const plainPassword = password || 'admin123';
+  const salt = await bcrypt.genSalt(10);
+  const passwordHash = await bcrypt.hash(plainPassword, salt);
+
+  const normalizedRole = (role || 'pharmacist').trim().toLowerCase();
+
+  const [result] = await pool.query(
+    'INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?)',
+    [userName, userEmail, passwordHash, normalizedRole]
+  );
+
+  const newUserId = result.insertId;
+  const [rows] = await pool.query(
+    'SELECT user_id, name, name AS user_name, email, role FROM users WHERE user_id = ?',
+    [newUserId]
+  );
+
+  res.status(201).json({
+    success: true,
+    data: rows[0],
+    message: 'User registered successfully'
+  });
+});
+
+// PUT /api/auth/users/:id
+const updateUser = asyncHandler(async (req, res) => {
+  const userId = Number(req.params.id);
+  if (!userId) {
+    return res.status(400).json({ success: false, message: 'Invalid user ID' });
+  }
+
+  const { name, user_name, role, email, password } = req.body;
+  const userName = (name || user_name || '').trim();
+  const normalizedRole = role ? role.trim().toLowerCase() : null;
+
+  const updates = [];
+  const params = [];
+
+  if (userName) {
+    updates.push('name = ?');
+    params.push(userName);
+  }
+  if (normalizedRole) {
+    updates.push('role = ?');
+    params.push(normalizedRole);
+  }
+  if (email) {
+    updates.push('email = ?');
+    params.push(email.trim().toLowerCase());
+  }
+  if (password) {
+    const salt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash(password, salt);
+    updates.push('password_hash = ?');
+    params.push(passwordHash);
+  }
+
+  if (updates.length > 0) {
+    params.push(userId);
+    await pool.query(`UPDATE users SET ${updates.join(', ')} WHERE user_id = ?`, params);
+  }
+
+  const [rows] = await pool.query(
+    'SELECT user_id, name, name AS user_name, email, role FROM users WHERE user_id = ?',
+    [userId]
+  );
+
+  if (rows.length === 0) {
+    return res.status(404).json({ success: false, message: 'User not found' });
+  }
+
+  res.json({
+    success: true,
+    data: rows[0],
+    message: 'User updated successfully'
+  });
+});
+
+// DELETE /api/auth/users/:id
+const deleteUser = asyncHandler(async (req, res) => {
+  const userId = Number(req.params.id);
+  if (!userId) {
+    return res.status(400).json({ success: false, message: 'Invalid user ID' });
+  }
+
+  if (userId === 1) {
+    return res.status(400).json({
+      success: false,
+      message: 'Primary administrator (#1) cannot be deleted'
+    });
+  }
+
+  if (req.user && req.user.user_id === userId) {
+    return res.status(400).json({
+      success: false,
+      message: 'You cannot delete your own active session account'
+    });
+  }
+
+  const [result] = await pool.query('DELETE FROM users WHERE user_id = ?', [userId]);
+  if (result.affectedRows === 0) {
+    return res.status(404).json({ success: false, message: 'User not found' });
+  }
+
+  res.json({
+    success: true,
+    message: 'User deleted successfully'
+  });
+});
+
 module.exports = {
   login,
   me,
-  getAllUsers
+  getAllUsers,
+  createUser,
+  updateUser,
+  deleteUser
 };
+

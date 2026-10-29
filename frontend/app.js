@@ -1046,25 +1046,79 @@ async function getUsers() {
 }
 
 async function addUser(u) {
-  const db = loadDB();
-  const user = { user_id: newId(db), user_name: u.user_name.trim(), role: u.role };
-  db.users.push(user);
-  saveDB(db);
-  return user;
-}
-
-async function updateUser(id, u) {
-  const db = loadDB();
-  const user = db.users.find(x => x.user_id === Number(id));
-  if (user) {
-    user.user_name = u.user_name.trim();
-    user.role = u.role;
+  const payload = {
+    user_name: u.user_name.trim(),
+    name: u.user_name.trim(),
+    role: (u.role || 'pharmacist').toLowerCase()
+  };
+  try {
+    const res = await apiRequest('/auth/users', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    const db = loadDB();
+    const user = {
+      user_id: res.user_id,
+      user_name: res.name || res.user_name || payload.name,
+      role: res.role || payload.role
+    };
+    db.users = db.users.filter(x => x.user_id !== user.user_id);
+    db.users.push(user);
+    saveDB(db);
+    return user;
+  } catch (err) {
+    console.warn("Backend user creation failed, falling back to local storage:", err.message);
+    const db = loadDB();
+    const user = { user_id: newId(db), user_name: payload.name, role: payload.role };
+    db.users.push(user);
     saveDB(db);
     return user;
   }
 }
 
+async function updateUser(id, u) {
+  const payload = {
+    user_name: u.user_name.trim(),
+    name: u.user_name.trim(),
+    role: (u.role || 'pharmacist').toLowerCase()
+  };
+  try {
+    const res = await apiRequest(`/auth/users/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload)
+    });
+    const db = loadDB();
+    const user = db.users.find(x => x.user_id === Number(id));
+    if (user) {
+      user.user_name = payload.name;
+      user.role = payload.role;
+      saveDB(db);
+    }
+    return res;
+  } catch (err) {
+    const db = loadDB();
+    const user = db.users.find(x => x.user_id === Number(id));
+    if (user) {
+      user.user_name = payload.name;
+      user.role = payload.role;
+      saveDB(db);
+      return user;
+    }
+    throw err;
+  }
+}
+
 async function deleteUser(id) {
+  try {
+    await apiRequest(`/auth/users/${id}`, {
+      method: 'DELETE'
+    });
+  } catch (err) {
+    console.warn("Backend user deletion error:", err.message);
+    if (err.message && (err.message.includes('administrator') || err.message.includes('active session'))) {
+      throw err;
+    }
+  }
   const db = loadDB();
   db.users = db.users.filter(x => x.user_id !== Number(id));
   saveDB(db);
@@ -3569,16 +3623,19 @@ async function vUsers() {
       if (r === "admin") roleCls = "admin";
       else if (r === "pharmacist") roleCls = "pharmacist";
 
+      const isMe = Number(u.user_id) === Number(currentLoggedInUserId);
+      const isPrimaryAdmin = Number(u.user_id) === 1;
+
       return {
         cells: [
           `#${u.user_id}`,
-          `<b>${esc(u.user_name)}</b>`,
+          `<b>${esc(u.user_name || u.name)}</b>`,
           `<span class="role-pill ${roleCls}">${esc(u.role)}</span>`,
-          u.user_id === currentLoggedInUserId ?
+          isMe ?
             '<span class="tag ok">Active Session</span>' :
             '<span class="tag neutral">Offline</span>',
           `<button class="btn sm ghost" data-edit-usr="${u.user_id}">Edit</button> ` +
-          `<button class="btn sm del" data-del-usr="${u.user_id}">Delete</button>`
+          (isPrimaryAdmin || isMe ? '' : `<button class="btn sm del" data-del-usr="${u.user_id}">Delete</button>`)
         ]
       };
     });
@@ -3593,6 +3650,10 @@ async function vUsers() {
     tracker.markSubmitted();
     if (!validateUserForm()) return;
     const uId = form.user_id.value;
+    const prevText = saveBtn.textContent;
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving...";
+
     try {
       if (uId) {
         await updateUser(uId, {
@@ -3607,10 +3668,15 @@ async function vUsers() {
         });
         toast("User registered.");
       }
+      form.reset();
+      form.user_id.value = "";
+      tracker.reset();
       await refreshUserPicker();
       await vUsers();
     } catch (err) {
       toast(err.message, true);
+      saveBtn.disabled = false;
+      saveBtn.textContent = prevText;
     }
   };
 
@@ -3622,10 +3688,11 @@ async function vUsers() {
       if (!u) return;
       $("#userFormTitle").textContent = "Edit User";
       form.user_id.value = u.user_id;
-      form.user_name.value = u.user_name;
+      form.user_name.value = u.user_name || u.name;
       const matchedRole = CONFIG.ROLES.find(r => r.toLowerCase() === (u.role || "").toLowerCase()) || u.role;
       form.role.value = matchedRole;
       cancelBtn.style.display = "inline-flex";
+      saveBtn.textContent = "Update User";
       tracker.reset();
       validateUserForm();
       form.scrollIntoView({ behavior: "smooth" });
@@ -3649,6 +3716,7 @@ async function vUsers() {
     form.user_id.value = "";
     $("#userFormTitle").textContent = "Add New User";
     cancelBtn.style.display = "none";
+    saveBtn.textContent = "Save User";
     tracker.reset();
     validateUserForm();
   };

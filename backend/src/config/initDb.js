@@ -28,6 +28,13 @@ async function autoInitDatabase(pool) {
           [p, id]
         );
       }
+      // Ensure users.role can accept VARCHAR(50) roles
+      try {
+        await pool.query("ALTER TABLE users MODIFY COLUMN role VARCHAR(50) NOT NULL DEFAULT 'pharmacist'");
+      } catch (e) {
+        // Ignored if already VARCHAR(50)
+      }
+
       return; // Already initialized
     }
 
@@ -74,7 +81,7 @@ async function autoInitDatabase(pool) {
         name          VARCHAR(100) NOT NULL,
         email         VARCHAR(120) NOT NULL UNIQUE,
         password_hash VARCHAR(255) NOT NULL,
-        role          ENUM('admin','pharmacist') NOT NULL DEFAULT 'pharmacist'
+        role          VARCHAR(50) NOT NULL DEFAULT 'pharmacist'
       )
     `);
 

@@ -14,6 +14,7 @@ const disposalRoutes = require('./disposalRoutes');
 const dashboardRoutes = require('./dashboardRoutes');
 
 router.use('/auth', authRoutes);
+router.use('/users', authRoutes);
 router.use('/manufacturers', manufacturerRoutes);
 router.use('/categories', categoryRoutes);
 router.use('/suppliers', supplierRoutes);
