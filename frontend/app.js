@@ -690,17 +690,31 @@ async function authenticateUserSwitch(userId, password) {
 
 /** Central API caller with JWT header and error handling */
 async function apiRequest(endpoint, options = {}) {
-  const token = await getAuthToken();
+  let token = await getAuthToken();
   const headers = {
     'Content-Type': 'application/json',
     ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
     ...(options.headers || {})
   };
 
-  const res = await fetch(`${CONFIG.API_BASE}${endpoint}`, {
+  let res = await fetch(`${CONFIG.API_BASE}${endpoint}`, {
     ...options,
     headers
   });
+
+  // If token is expired or rejected, refresh and retry once
+  if (res.status === 401 && token) {
+    cachedAuthToken = null;
+    localStorage.removeItem("medstock_auth_token");
+    token = await getAuthToken();
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+      res = await fetch(`${CONFIG.API_BASE}${endpoint}`, {
+        ...options,
+        headers
+      });
+    }
+  }
 
   const json = await res.json();
   if (!res.ok || json.success === false) {
@@ -1323,7 +1337,6 @@ const SCREENS = [
 ];
 
 let currentScreen = "Dashboard";
-let currentLoggedInUserId = 1; // Default to Dr. Rajesh Sharma (Admin)
 
 /* ---------------------------------------------------------------------
    1. SCREEN: DASHBOARD
