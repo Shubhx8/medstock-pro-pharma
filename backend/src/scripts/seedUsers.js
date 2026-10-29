@@ -9,7 +9,8 @@ async function seedUsers() {
 
     const users = [
       { name: 'Dr. Rajesh Sharma (Admin)', email: 'admin@pharmacy.com', password_hash: adminPass, role: 'admin' },
-      { name: 'Priya Patel (Pharmacist)', email: 'staff@pharmacy.com', password_hash: staffPass, role: 'pharmacist' }
+      { name: 'Priya Patel (Pharmacist)', email: 'staff@pharmacy.com', password_hash: staffPass, role: 'pharmacist' },
+      { name: 'Vikram Singh (Store Keeper)', email: 'storekeeper@pharmacy.com', password_hash: staffPass, role: 'storekeeper' }
     ];
 
     for (const u of users) {

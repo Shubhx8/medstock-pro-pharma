@@ -5,21 +5,26 @@ const asyncHandler = require('../utils/asyncHandler');
 
 // POST /api/auth/login
 const login = asyncHandler(async (req, res) => {
-  const { email, password } = req.body;
+  const { email, user_id, password } = req.body;
 
-  if (!email || !password) {
+  if (!password || (!email && !user_id)) {
     return res.status(400).json({
       success: false,
-      message: 'Email and password are required'
+      message: 'Password and user selection (or email) are required'
     });
   }
 
-  // Fetch user by email
-  const [rows] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
+  let rows;
+  if (user_id) {
+    [rows] = await pool.query('SELECT * FROM users WHERE user_id = ?', [Number(user_id)]);
+  } else {
+    [rows] = await pool.query('SELECT * FROM users WHERE email = ?', [email.trim().toLowerCase()]);
+  }
+
   if (rows.length === 0) {
     return res.status(401).json({
       success: false,
-      message: 'Invalid credentials'
+      message: 'User account not found'
     });
   }
 
@@ -28,7 +33,7 @@ const login = asyncHandler(async (req, res) => {
   if (!isMatch) {
     return res.status(401).json({
       success: false,
-      message: 'Invalid credentials'
+      message: 'Incorrect password. Please try again.'
     });
   }
 
@@ -40,7 +45,7 @@ const login = asyncHandler(async (req, res) => {
     role: user.role
   };
 
-  const token = jwt.sign(tokenPayload, secret, { expiresIn: '1d' });
+  const token = jwt.sign(tokenPayload, secret, { expiresIn: '7d' });
 
   res.json({
     success: true,
@@ -48,7 +53,7 @@ const login = asyncHandler(async (req, res) => {
       token,
       user: tokenPayload
     },
-    message: 'Login successful'
+    message: `Logged in successfully as ${user.name}`
   });
 });
 

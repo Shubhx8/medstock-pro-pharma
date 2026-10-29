@@ -375,9 +375,10 @@ async function autoInitDatabase(pool) {
     await pool.query(`
       INSERT INTO users (name, email, password_hash, role) VALUES
       ('Dr. Rajesh Sharma (Admin)', 'admin@pharmacy.com', ?, 'admin'),
-      ('Priya Patel (Pharmacist)', 'staff@pharmacy.com', ?, 'pharmacist')
-      ON DUPLICATE KEY UPDATE password_hash=VALUES(password_hash)
-    `, [adminPass, staffPass]);
+      ('Priya Patel (Pharmacist)', 'staff@pharmacy.com', ?, 'pharmacist'),
+      ('Vikram Singh (Store Keeper)', 'storekeeper@pharmacy.com', ?, 'storekeeper')
+      ON DUPLICATE KEY UPDATE password_hash=VALUES(password_hash), role=VALUES(role)
+    `, [adminPass, staffPass, staffPass]);
 
     console.log('[AUTO-INIT] Database schema, triggers, views, seed data, and users initialized successfully!');
   } catch (err) {

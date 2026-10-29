@@ -636,33 +636,56 @@ function newId(db) {
    ASYNC DATA ACCESS FUNCTIONS (Connected to Backend REST API)
    --------------------------------------------------------------------- */
 
-let cachedAuthToken = null;
-let cachedAuthRole = null;
+let cachedAuthToken = localStorage.getItem("medstock_auth_token") || null;
+let currentLoggedInUserId = Number(localStorage.getItem("medstock_active_user")) || 1;
 
-/** Ensure valid JWT token for active role */
+/** Ensure valid JWT token for active session */
 async function getAuthToken() {
-  const currentRole = (typeof currentLoggedInUserId !== 'undefined' && currentLoggedInUserId === 2) ? 'pharmacist' : 'admin';
-  if (cachedAuthToken && cachedAuthRole === currentRole) {
+  if (cachedAuthToken) {
     return cachedAuthToken;
   }
   try {
-    const email = currentRole === 'admin' ? 'admin@pharmacy.com' : 'staff@pharmacy.com';
-    const password = currentRole === 'admin' ? 'admin123' : 'staff123';
+    const savedUserId = Number(localStorage.getItem("medstock_active_user")) || 1;
+    const pwd = savedUserId === 1 ? "admin123" : "staff123";
     const res = await fetch(`${CONFIG.API_BASE}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: savedUserId, password: pwd })
     });
     const json = await res.json();
     if (json.success && json.data && json.data.token) {
       cachedAuthToken = json.data.token;
-      cachedAuthRole = currentRole;
+      currentLoggedInUserId = json.data.user.user_id;
+      localStorage.setItem("medstock_auth_token", cachedAuthToken);
+      localStorage.setItem("medstock_active_user", currentLoggedInUserId);
       return cachedAuthToken;
     }
   } catch (err) {
     console.warn("Backend auth failed, using local storage mode:", err.message);
   }
   return null;
+}
+
+/** Authenticate user switch with password */
+async function authenticateUserSwitch(userId, password) {
+  try {
+    const res = await fetch(`${CONFIG.API_BASE}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: Number(userId), password: password.trim() })
+    });
+    const json = await res.json();
+    if (json.success && json.data && json.data.token) {
+      cachedAuthToken = json.data.token;
+      currentLoggedInUserId = json.data.user.user_id;
+      localStorage.setItem("medstock_auth_token", cachedAuthToken);
+      localStorage.setItem("medstock_active_user", currentLoggedInUserId);
+      return { success: true, user: json.data.user };
+    }
+    return { success: false, message: json.message || "Incorrect password." };
+  } catch (err) {
+    return { success: false, message: err.message || "Network error during authentication." };
+  }
 }
 
 /** Central API caller with JWT header and error handling */
@@ -1026,7 +1049,8 @@ async function addUser(u) {
   const payload = {
     user_name: u.user_name.trim(),
     name: u.user_name.trim(),
-    role: (u.role || 'pharmacist').toLowerCase()
+    role: (u.role || 'pharmacist').toLowerCase(),
+    ...(u.password ? { password: u.password.trim() } : {})
   };
   try {
     const res = await apiRequest('/auth/users', {
@@ -1037,7 +1061,8 @@ async function addUser(u) {
     const user = {
       user_id: res.user_id,
       user_name: res.name || res.user_name || payload.name,
-      role: res.role || payload.role
+      role: res.role || payload.role,
+      email: res.email || ''
     };
     db.users = db.users.filter(x => x.user_id !== user.user_id);
     db.users.push(user);
@@ -1046,7 +1071,7 @@ async function addUser(u) {
   } catch (err) {
     console.warn("Backend user creation failed, falling back to local storage:", err.message);
     const db = loadDB();
-    const user = { user_id: newId(db), user_name: payload.name, role: payload.role };
+    const user = { user_id: newId(db), user_name: payload.name, role: payload.role, email: '' };
     db.users.push(user);
     saveDB(db);
     return user;
@@ -1057,7 +1082,8 @@ async function updateUser(id, u) {
   const payload = {
     user_name: u.user_name.trim(),
     name: u.user_name.trim(),
-    role: (u.role || 'pharmacist').toLowerCase()
+    role: (u.role || 'pharmacist').toLowerCase(),
+    ...(u.password ? { password: u.password.trim() } : {})
   };
   try {
     const res = await apiRequest(`/auth/users/${id}`, {
@@ -3608,6 +3634,12 @@ async function vUsers() {
           <div class="field-error" id="err_usr_role"></div>
         </div>
 
+        <div class="form-group">
+          <label>Account Password <span class="note">(leave blank for default: admin123)</span>
+            <input name="password" type="password" placeholder="e.g. secret123" autocomplete="new-password">
+          </label>
+        </div>
+
         <div class="form-actions">
           <button type="submit" class="btn" id="userSaveBtn">Save User</button>
           <button type="button" class="btn ghost" id="userCancelBtn" style="display:none">Cancel</button>
@@ -3646,10 +3678,11 @@ async function vUsers() {
       const cells = [
         `#${u.user_id}`,
         `<b>${esc(u.user_name || u.name)}</b>`,
+        `<span class="code">${esc(u.email || '—')}</span>`,
         `<span class="role-pill ${roleCls}">${esc(u.role)}</span>`,
         isMe ?
           '<span class="tag ok">Active Session</span>' :
-          '<span class="tag neutral">Offline</span>'
+          '<span class="tag neutral">Available</span>'
       ];
 
       if (isAdmin) {
@@ -3663,8 +3696,8 @@ async function vUsers() {
     });
 
     const headers = isAdmin
-      ? ["User ID", "User Name", "Assigned Role", "Status", "Actions"]
-      : ["User ID", "User Name", "Assigned Role", "Status"];
+      ? ["User ID", "User Name", "Email / Account", "Assigned Role", "Status", "Actions"]
+      : ["User ID", "User Name", "Email / Account", "Assigned Role", "Status"];
 
     $("#usersTableWrap").innerHTML = table(headers, rows);
   }
@@ -3708,13 +3741,15 @@ async function vUsers() {
       if (uId) {
         await updateUser(uId, {
           user_name: form.user_name.value,
-          role: form.role.value
+          role: form.role.value,
+          password: form.password.value
         });
         toast("User updated.");
       } else {
         await addUser({
           user_name: form.user_name.value,
-          role: form.role.value
+          role: form.role.value,
+          password: form.password.value
         });
         toast("User registered.");
       }
@@ -3839,6 +3874,109 @@ async function go(screenId) {
   }
 }
 
+let modalPendingUserId = null;
+
+function openUserSwitchModal(targetUserId, users) {
+  const targetUser = users.find(u => Number(u.user_id) === Number(targetUserId));
+  if (!targetUser) return;
+
+  modalPendingUserId = Number(targetUserId);
+
+  const modal = $("#authSwitchModal");
+  const pwdInput = $("#authSwitchPassword");
+  const errDiv = $("#authSwitchError");
+  const badge = $("#authTargetUserBadge");
+
+  badge.innerHTML = `
+    <div>
+      <div class="auth-target-name">${esc(targetUser.user_name || targetUser.name)}</div>
+      <div class="auth-target-email">${esc(targetUser.email || 'System Staff User')}</div>
+    </div>
+    <span class="role-pill ${(targetUser.role || '').toLowerCase()}">${esc(targetUser.role || 'Staff')}</span>
+  `;
+
+  pwdInput.value = "";
+  pwdInput.type = "password";
+  errDiv.style.display = "none";
+  errDiv.textContent = "";
+
+  const toggleBtn = $("#authTogglePwdBtn");
+  if (toggleBtn) toggleBtn.textContent = "👁️";
+
+  modal.style.display = "flex";
+  setTimeout(() => pwdInput.focus(), 60);
+}
+
+function closeUserSwitchModal() {
+  const modal = $("#authSwitchModal");
+  if (modal) modal.style.display = "none";
+  modalPendingUserId = null;
+  // Revert dropdown selection to current active user
+  const select = $("#currentUserSelect");
+  if (select) select.value = currentLoggedInUserId;
+}
+
+function initAuthModal() {
+  const modal = $("#authSwitchModal");
+  const form = $("#authSwitchForm");
+  const closeBtn = $("#authModalCloseBtn");
+  const cancelBtn = $("#authModalCancelBtn");
+  const togglePwdBtn = $("#authTogglePwdBtn");
+  const pwdInput = $("#authSwitchPassword");
+  const submitBtn = $("#authModalSubmitBtn");
+  const errDiv = $("#authSwitchError");
+
+  if (!modal || !form) return;
+
+  if (closeBtn) closeBtn.onclick = closeUserSwitchModal;
+  if (cancelBtn) cancelBtn.onclick = closeUserSwitchModal;
+
+  modal.onclick = e => {
+    if (e.target === modal) closeUserSwitchModal();
+  };
+
+  if (togglePwdBtn) {
+    togglePwdBtn.onclick = () => {
+      if (pwdInput.type === "password") {
+        pwdInput.type = "text";
+        togglePwdBtn.textContent = "🙈";
+      } else {
+        pwdInput.type = "password";
+        togglePwdBtn.textContent = "👁️";
+      }
+    };
+  }
+
+  form.onsubmit = async e => {
+    e.preventDefault();
+    if (!modalPendingUserId) return;
+    const pwd = pwdInput.value;
+    if (!pwd) return;
+
+    const prevText = submitBtn.textContent;
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Verifying...";
+    errDiv.style.display = "none";
+
+    const res = await authenticateUserSwitch(modalPendingUserId, pwd);
+
+    submitBtn.disabled = false;
+    submitBtn.textContent = prevText;
+
+    if (res.success) {
+      toast(`Signed in as: ${res.user.name} (${res.user.role})`);
+      closeUserSwitchModal();
+      await refreshUserPicker();
+      buildNav();
+      await go(currentScreen);
+    } else {
+      errDiv.textContent = res.message || "Incorrect password.";
+      errDiv.style.display = "block";
+      pwdInput.select();
+    }
+  };
+}
+
 /** Refresh Top Bar User Picker */
 async function refreshUserPicker() {
   const users = await getUsers();
@@ -3855,18 +3993,14 @@ async function refreshUserPicker() {
 
   select.innerHTML = users.map(u => `
     <option value="${u.user_id}"${u.user_id === currentLoggedInUserId ? " selected" : ""}>
-      ${esc(u.user_name)} (${esc(u.role)})
+      ${esc(u.user_name || u.name)} (${esc(u.role)})
     </option>
   `).join("");
 
   select.onchange = () => {
-    currentLoggedInUserId = Number(select.value);
-    localStorage.setItem("medstock_active_user", currentLoggedInUserId);
-    toast(`Active user switched to: ${select.selectedOptions[0].text}`);
-    // If on Dispense or Disposal screen, refresh to reflect current user
-    if (currentScreen === "Dispense" || currentScreen === "Disposal") {
-      go(currentScreen);
-    }
+    const nextId = Number(select.value);
+    if (nextId === currentLoggedInUserId) return;
+    openUserSwitchModal(nextId, users);
   };
 }
 
@@ -3954,8 +4088,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     };
   }
 
-  // Initialize theme, user picker & render first view
+  // Initialize theme, auth modal, user picker & render first view
   initTheme();
+  initAuthModal();
   await refreshUserPicker();
   buildNav();
   await go("Dashboard");
