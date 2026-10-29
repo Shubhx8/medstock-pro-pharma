@@ -936,7 +936,11 @@ async function deleteSupplier(id) {
 async function getCustomers() {
   try {
     const data = await apiRequest('/customers');
-    return data.map(c => ({ ...c, customer_name: c.name || c.customer_name }));
+    return data.map(c => ({
+      ...c,
+      customer_name: c.name || c.customer_name,
+      email: c.email || ''
+    }));
   } catch (err) {
     return loadDB().customers;
   }
@@ -945,13 +949,18 @@ async function getCustomers() {
 async function addCustomer(c) {
   const payload = {
     name: (c.customer_name || c.name || '').trim(),
-    phone: (c.phone || '').trim()
+    phone: (c.phone || '').trim(),
+    email: (c.email || '').trim() || null
   };
   const created = await apiRequest('/customers', {
     method: 'POST',
     body: JSON.stringify(payload)
   });
-  const formatted = { ...created, customer_name: created.name || created.customer_name };
+  const formatted = {
+    ...created,
+    customer_name: created.name || created.customer_name,
+    email: created.email || payload.email || ''
+  };
   const db = loadDB();
   db.customers.push(formatted);
   saveDB(db);
@@ -961,7 +970,8 @@ async function addCustomer(c) {
 async function updateCustomer(id, c) {
   const payload = {
     name: (c.customer_name || c.name || '').trim(),
-    phone: (c.phone || '').trim()
+    phone: (c.phone || '').trim(),
+    email: (c.email || '').trim() || null
   };
   const res = await apiRequest(`/customers/${id}`, {
     method: 'PUT',
@@ -972,6 +982,7 @@ async function updateCustomer(id, c) {
   if (cust) {
     cust.customer_name = payload.name;
     cust.phone = payload.phone;
+    cust.email = payload.email || '';
     saveDB(db);
   }
   return res;

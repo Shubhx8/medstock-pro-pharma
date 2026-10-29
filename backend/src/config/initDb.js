@@ -35,6 +35,15 @@ async function autoInitDatabase(pool) {
         // Ignored if already VARCHAR(50)
       }
 
+      // Ensure email column exists on customer table
+      try {
+        const [custColCheck] = await pool.query("SHOW COLUMNS FROM customer LIKE 'email'");
+        if (custColCheck.length === 0) {
+          await pool.query("ALTER TABLE customer ADD COLUMN email VARCHAR(120) NULL");
+          console.log('[AUTO-INIT] Added email column to customer table.');
+        }
+      } catch (e) {}
+
       // Ensure alert foreign keys cascade delete when medicine or batch is deleted
       try {
         await pool.query('ALTER TABLE alert DROP FOREIGN KEY fk_alert_med');
@@ -82,7 +91,8 @@ async function autoInitDatabase(pool) {
       CREATE TABLE IF NOT EXISTS customer (
         customer_id INT AUTO_INCREMENT PRIMARY KEY,
         name        VARCHAR(100) NOT NULL,
-        phone       VARCHAR(15)
+        phone       VARCHAR(15),
+        email       VARCHAR(120)
       )
     `);
 

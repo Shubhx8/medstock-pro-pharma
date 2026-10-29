@@ -8,7 +8,7 @@ const { verifyToken, requireRole } = require('../middleware/auth');
 const controller = createCrudController(
   'customer',
   'customer_id',
-  ['name', 'phone'],
+  ['name', 'phone', 'email'],
   'name'
 );
 

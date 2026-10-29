@@ -31,7 +31,8 @@ CREATE TABLE supplier (
 CREATE TABLE customer (
   customer_id INT AUTO_INCREMENT PRIMARY KEY,
   name        VARCHAR(100) NOT NULL,
-  phone       VARCHAR(15)
+  phone       VARCHAR(15),
+  email       VARCHAR(120)
 );
 
 CREATE TABLE users (
