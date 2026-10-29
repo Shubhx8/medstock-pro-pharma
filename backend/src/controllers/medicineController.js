@@ -203,11 +203,52 @@ const updateMedicine = asyncHandler(async (req, res) => {
 // DELETE /api/medicines/:id
 const deleteMedicine = asyncHandler(async (req, res) => {
   const { id } = req.params;
+
+  // 1. Check if medicine exists
+  const [medRows] = await pool.query('SELECT * FROM medicine WHERE medicine_id = ?', [id]);
+  if (medRows.length === 0) {
+    return res.status(404).json({ success: false, message: 'Medicine not found' });
+  }
+  const med = medRows[0];
+
+  // 2. Check if any batches have completed sales in sold_in
+  const [salesCheck] = await pool.query(`
+    SELECT COUNT(*) AS cnt
+    FROM sold_in si
+    JOIN batch b ON si.batch_id = b.batch_id
+    WHERE b.medicine_id = ?
+  `, [id]);
+
+  if (salesCheck[0].cnt > 0) {
+    return res.status(400).json({
+      success: false,
+      message: `Cannot delete medicine "${med.name}": Linked to ${salesCheck[0].cnt} completed sale record(s) in sales history.`
+    });
+  }
+
+  // 3. Delete any linked alerts
+  await pool.query('DELETE FROM alert WHERE medicine_id = ?', [id]);
+
+  // 4. Delete linked disposals for batches of this medicine
+  await pool.query(`
+    DELETE d FROM disposal d
+    JOIN batch b ON d.batch_id = b.batch_id
+    WHERE b.medicine_id = ?
+  `, [id]);
+
+  // 5. Delete linked batches
+  await pool.query('DELETE FROM batch WHERE medicine_id = ?', [id]);
+
+  // 6. Delete medicine
   const [result] = await pool.query('DELETE FROM medicine WHERE medicine_id = ?', [id]);
   if (result.affectedRows === 0) {
     return res.status(404).json({ success: false, message: 'Medicine not found' });
   }
-  res.json({ success: true, message: 'Medicine deleted successfully' });
+
+  res.json({
+    success: true,
+    message: `Medicine "${med.name}" deleted successfully`
+  });
 });
 
 module.exports = {

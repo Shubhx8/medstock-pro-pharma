@@ -4,7 +4,7 @@ const disposalController = require('../controllers/disposalController');
 const { verifyToken, requireRole } = require('../middleware/auth');
 
 router.use(verifyToken);
-router.post('/', requireRole('admin'), disposalController.createDisposal);
+router.post('/', requireRole('admin', 'pharmacist'), disposalController.createDisposal);
 router.get('/', disposalController.getDisposals);
 
 module.exports = router;

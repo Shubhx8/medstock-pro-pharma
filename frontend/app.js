@@ -741,42 +741,40 @@ async function addMedicine(m) {
 }
 
 async function updateMedicine(id, m) {
-  try {
-    return await apiRequest(`/medicines/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify({
-        name: m.medicine_name,
-        category_id: Number(m.category_id),
-        manufacturer_id: Number(m.manufacturer_id),
-        unit: m.unit,
-        unit_price: Number(m.unit_price) || 0,
-        reorder_level: Number(m.min_stock_level)
-      })
+  const payload = {
+    name: m.medicine_name ? m.medicine_name.trim() : undefined,
+    category_id: Number(m.category_id),
+    manufacturer_id: Number(m.manufacturer_id),
+    unit: m.unit,
+    unit_price: Number(m.unit_price) || 0,
+    reorder_level: Number(m.min_stock_level)
+  };
+  const res = await apiRequest(`/medicines/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload)
+  });
+  const db = loadDB();
+  const med = db.medicines.find(x => x.medicine_id === Number(id));
+  if (med) {
+    Object.assign(med, {
+      medicine_name: payload.name || med.medicine_name,
+      category_id: payload.category_id,
+      manufacturer_id: payload.manufacturer_id,
+      unit: payload.unit,
+      unit_price: payload.unit_price,
+      min_stock_level: payload.reorder_level
     });
-  } catch (err) {
-    const db = loadDB();
-    const med = db.medicines.find(x => x.medicine_id === Number(id));
-    if (med) {
-      med.medicine_name = m.medicine_name.trim();
-      med.category_id = Number(m.category_id);
-      med.manufacturer_id = Number(m.manufacturer_id);
-      med.unit = m.unit;
-      med.min_stock_level = Number(m.min_stock_level);
-      saveDB(db);
-      return med;
-    }
-    throw err;
+    saveDB(db);
   }
+  return res;
 }
 
 async function deleteMedicine(id) {
-  try {
-    return await apiRequest(`/medicines/${id}`, { method: 'DELETE' });
-  } catch (err) {
-    const db = loadDB();
-    db.medicines = db.medicines.filter(x => x.medicine_id !== Number(id));
-    saveDB(db);
-  }
+  const res = await apiRequest(`/medicines/${id}`, { method: 'DELETE' });
+  const db = loadDB();
+  db.medicines = db.medicines.filter(x => x.medicine_id !== Number(id));
+  saveDB(db);
+  return res;
 }
 
 /** Manufacturers */
@@ -789,47 +787,39 @@ async function getManufacturers() {
 }
 
 async function addManufacturer(m) {
-  try {
-    return await apiRequest('/manufacturers', {
-      method: 'POST',
-      body: JSON.stringify(m)
-    });
-  } catch (err) {
-    const db = loadDB();
-    const mfr = { manufacturer_id: newId(db), name: m.name.trim(), address: m.address.trim() };
-    db.manufacturers.push(mfr);
-    saveDB(db);
-    return mfr;
-  }
+  const payload = { name: m.name.trim(), address: (m.address || '').trim() };
+  const created = await apiRequest('/manufacturers', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+  const db = loadDB();
+  db.manufacturers.push(created);
+  saveDB(db);
+  return created;
 }
 
 async function updateManufacturer(id, m) {
-  try {
-    return await apiRequest(`/manufacturers/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(m)
-    });
-  } catch (err) {
-    const db = loadDB();
-    const mfr = db.manufacturers.find(x => x.manufacturer_id === Number(id));
-    if (mfr) {
-      mfr.name = m.name.trim();
-      mfr.address = m.address.trim();
-      saveDB(db);
-      return mfr;
-    }
-    throw err;
+  const payload = { name: m.name.trim(), address: (m.address || '').trim() };
+  const res = await apiRequest(`/manufacturers/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload)
+  });
+  const db = loadDB();
+  const mfr = db.manufacturers.find(x => x.manufacturer_id === Number(id));
+  if (mfr) {
+    mfr.name = payload.name;
+    mfr.address = payload.address;
+    saveDB(db);
   }
+  return res;
 }
 
 async function deleteManufacturer(id) {
-  try {
-    return await apiRequest(`/manufacturers/${id}`, { method: 'DELETE' });
-  } catch (err) {
-    const db = loadDB();
-    db.manufacturers = db.manufacturers.filter(x => x.manufacturer_id !== Number(id));
-    saveDB(db);
-  }
+  const res = await apiRequest(`/manufacturers/${id}`, { method: 'DELETE' });
+  const db = loadDB();
+  db.manufacturers = db.manufacturers.filter(x => x.manufacturer_id !== Number(id));
+  saveDB(db);
+  return res;
 }
 
 /** Categories */
@@ -843,47 +833,39 @@ async function getCategories() {
 }
 
 async function addCategory(c) {
-  try {
-    const created = await apiRequest('/categories', {
-      method: 'POST',
-      body: JSON.stringify({ name: c.category_name || c.name })
-    });
-    return { ...created, category_name: created.name || created.category_name };
-  } catch (err) {
-    const db = loadDB();
-    const cat = { category_id: newId(db), category_name: c.category_name.trim() };
-    db.categories.push(cat);
-    saveDB(db);
-    return cat;
-  }
+  const payload = { name: (c.category_name || c.name || '').trim() };
+  const created = await apiRequest('/categories', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+  const formatted = { ...created, category_name: created.name || created.category_name };
+  const db = loadDB();
+  db.categories.push(formatted);
+  saveDB(db);
+  return formatted;
 }
 
 async function updateCategory(id, c) {
-  try {
-    return await apiRequest(`/categories/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify({ name: c.category_name || c.name })
-    });
-  } catch (err) {
-    const db = loadDB();
-    const cat = db.categories.find(x => x.category_id === Number(id));
-    if (cat) {
-      cat.category_name = c.category_name.trim();
-      saveDB(db);
-      return cat;
-    }
-    throw err;
+  const payload = { name: (c.category_name || c.name || '').trim() };
+  const res = await apiRequest(`/categories/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload)
+  });
+  const db = loadDB();
+  const cat = db.categories.find(x => x.category_id === Number(id));
+  if (cat) {
+    cat.category_name = payload.name;
+    saveDB(db);
   }
+  return res;
 }
 
 async function deleteCategory(id) {
-  try {
-    return await apiRequest(`/categories/${id}`, { method: 'DELETE' });
-  } catch (err) {
-    const db = loadDB();
-    db.categories = db.categories.filter(x => x.category_id !== Number(id));
-    saveDB(db);
-  }
+  const res = await apiRequest(`/categories/${id}`, { method: 'DELETE' });
+  const db = loadDB();
+  db.categories = db.categories.filter(x => x.category_id !== Number(id));
+  saveDB(db);
+  return res;
 }
 
 /** Suppliers */
@@ -901,61 +883,53 @@ async function getSuppliers() {
 }
 
 async function addSupplier(s) {
-  try {
-    const created = await apiRequest('/suppliers', {
-      method: 'POST',
-      body: JSON.stringify({
-        name: s.supplier_name || s.name,
-        phone: s.phone,
-        address: s.address
-      })
-    });
-    return {
-      ...created,
-      supplier_name: created.name || created.supplier_name,
-      address: created.address || s.address
-    };
-  } catch (err) {
-    const db = loadDB();
-    const sup = { supplier_id: newId(db), supplier_name: s.supplier_name.trim(), phone: s.phone.trim(), address: s.address.trim() };
-    db.suppliers.push(sup);
-    saveDB(db);
-    return sup;
-  }
+  const payload = {
+    name: (s.supplier_name || s.name || '').trim(),
+    phone: (s.phone || '').trim(),
+    address: (s.address || '').trim()
+  };
+  const created = await apiRequest('/suppliers', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+  const formatted = {
+    ...created,
+    supplier_name: created.name || created.supplier_name,
+    address: created.address || payload.address
+  };
+  const db = loadDB();
+  db.suppliers.push(formatted);
+  saveDB(db);
+  return formatted;
 }
 
 async function updateSupplier(id, s) {
-  try {
-    return await apiRequest(`/suppliers/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify({
-        name: s.supplier_name || s.name,
-        phone: s.phone,
-        address: s.address
-      })
-    });
-  } catch (err) {
-    const db = loadDB();
-    const sup = db.suppliers.find(x => x.supplier_id === Number(id));
-    if (sup) {
-      sup.supplier_name = s.supplier_name.trim();
-      sup.phone = s.phone.trim();
-      sup.address = s.address.trim();
-      saveDB(db);
-      return sup;
-    }
-    throw err;
+  const payload = {
+    name: (s.supplier_name || s.name || '').trim(),
+    phone: (s.phone || '').trim(),
+    address: (s.address || '').trim()
+  };
+  const res = await apiRequest(`/suppliers/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload)
+  });
+  const db = loadDB();
+  const sup = db.suppliers.find(x => x.supplier_id === Number(id));
+  if (sup) {
+    sup.supplier_name = payload.name;
+    sup.phone = payload.phone;
+    sup.address = payload.address;
+    saveDB(db);
   }
+  return res;
 }
 
 async function deleteSupplier(id) {
-  try {
-    return await apiRequest(`/suppliers/${id}`, { method: 'DELETE' });
-  } catch (err) {
-    const db = loadDB();
-    db.suppliers = db.suppliers.filter(x => x.supplier_id !== Number(id));
-    saveDB(db);
-  }
+  const res = await apiRequest(`/suppliers/${id}`, { method: 'DELETE' });
+  const db = loadDB();
+  db.suppliers = db.suppliers.filter(x => x.supplier_id !== Number(id));
+  saveDB(db);
+  return res;
 }
 
 /** Customers */
@@ -969,54 +943,46 @@ async function getCustomers() {
 }
 
 async function addCustomer(c) {
-  try {
-    const created = await apiRequest('/customers', {
-      method: 'POST',
-      body: JSON.stringify({
-        name: c.customer_name || c.name,
-        phone: c.phone
-      })
-    });
-    return { ...created, customer_name: created.name || created.customer_name };
-  } catch (err) {
-    const db = loadDB();
-    const cust = { customer_id: newId(db), customer_name: c.customer_name.trim(), phone: c.phone.trim(), email: c.email };
-    db.customers.push(cust);
-    saveDB(db);
-    return cust;
-  }
+  const payload = {
+    name: (c.customer_name || c.name || '').trim(),
+    phone: (c.phone || '').trim()
+  };
+  const created = await apiRequest('/customers', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+  const formatted = { ...created, customer_name: created.name || created.customer_name };
+  const db = loadDB();
+  db.customers.push(formatted);
+  saveDB(db);
+  return formatted;
 }
 
 async function updateCustomer(id, c) {
-  try {
-    return await apiRequest(`/customers/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify({
-        name: c.customer_name || c.name,
-        phone: c.phone
-      })
-    });
-  } catch (err) {
-    const db = loadDB();
-    const cust = db.customers.find(x => x.customer_id === Number(id));
-    if (cust) {
-      cust.customer_name = c.customer_name.trim();
-      cust.phone = c.phone.trim();
-      saveDB(db);
-      return cust;
-    }
-    throw err;
+  const payload = {
+    name: (c.customer_name || c.name || '').trim(),
+    phone: (c.phone || '').trim()
+  };
+  const res = await apiRequest(`/customers/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload)
+  });
+  const db = loadDB();
+  const cust = db.customers.find(x => x.customer_id === Number(id));
+  if (cust) {
+    cust.customer_name = payload.name;
+    cust.phone = payload.phone;
+    saveDB(db);
   }
+  return res;
 }
 
 async function deleteCustomer(id) {
-  try {
-    return await apiRequest(`/customers/${id}`, { method: 'DELETE' });
-  } catch (err) {
-    const db = loadDB();
-    db.customers = db.customers.filter(x => x.customer_id !== Number(id));
-    saveDB(db);
-  }
+  const res = await apiRequest(`/customers/${id}`, { method: 'DELETE' });
+  const db = loadDB();
+  db.customers = db.customers.filter(x => x.customer_id !== Number(id));
+  saveDB(db);
+  return res;
 }
 
 /** Customer aggregated stats */
@@ -1793,6 +1759,9 @@ function renderMedicinesTab(meds, mfrs, cats, bats, mfrMap, catMap) {
     tracker.markSubmitted();
     if (!validateMedForm()) return;
     const medId = form.medicine_id.value;
+    const prevText = saveBtn.textContent;
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving...";
 
     try {
       if (medId) {
@@ -1816,9 +1785,14 @@ function renderMedicinesTab(meds, mfrs, cats, bats, mfrMap, catMap) {
         });
         toast("Medicine added successfully.");
       }
+      form.reset();
+      form.medicine_id.value = "";
+      tracker.reset();
       await vMedicines();
     } catch (err) {
       toast(err.message, true);
+      saveBtn.disabled = false;
+      saveBtn.textContent = prevText;
     }
   };
 
@@ -1832,13 +1806,15 @@ function renderMedicinesTab(meds, mfrs, cats, bats, mfrMap, catMap) {
       if (!target) return;
       $("#medFormTitle").textContent = "Edit Medicine";
       form.medicine_id.value = target.medicine_id;
-      form.medicine_name.value = target.medicine_name;
+      form.medicine_name.value = target.medicine_name || target.name;
       form.category_id.value = target.category_id;
       form.manufacturer_id.value = target.manufacturer_id;
-      form.unit.value = target.unit;
+      const matchedUnit = CONFIG.UNITS.find(u => u.toLowerCase() === (target.unit || "").toLowerCase()) || target.unit;
+      form.unit.value = matchedUnit;
       form.unit_price.value = target.unit_price;
-      form.min_stock_level.value = target.min_stock_level;
+      form.min_stock_level.value = target.min_stock_level !== undefined ? target.min_stock_level : target.reorder_level;
       cancelBtn.style.display = "inline-flex";
+      saveBtn.textContent = "Update Medicine";
       tracker.reset();
       validateMedForm();
       form.scrollIntoView({ behavior: "smooth" });
@@ -1862,6 +1838,7 @@ function renderMedicinesTab(meds, mfrs, cats, bats, mfrMap, catMap) {
     form.medicine_id.value = "";
     $("#medFormTitle").textContent = "Add New Medicine";
     cancelBtn.style.display = "none";
+    saveBtn.textContent = "Save Medicine";
     tracker.reset();
     validateMedForm();
   };
@@ -1944,6 +1921,10 @@ function renderManufacturersTab(mfrs, meds) {
     tracker.markSubmitted();
     if (!validateMfrForm()) return;
     const mId = form.manufacturer_id.value;
+    const prevText = saveBtn.textContent;
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving...";
+
     try {
       if (mId) {
         await updateManufacturer(mId, { name: form.name.value, address: form.address.value });
@@ -1952,9 +1933,14 @@ function renderManufacturersTab(mfrs, meds) {
         await addManufacturer({ name: form.name.value, address: form.address.value });
         toast("Manufacturer added.");
       }
+      form.reset();
+      form.manufacturer_id.value = "";
+      tracker.reset();
       await vMedicines();
     } catch (err) {
       toast(err.message, true);
+      saveBtn.disabled = false;
+      saveBtn.textContent = prevText;
     }
   };
 
@@ -1969,6 +1955,7 @@ function renderManufacturersTab(mfrs, meds) {
       form.name.value = mf.name;
       form.address.value = mf.address;
       cancelBtn.style.display = "inline-flex";
+      saveBtn.textContent = "Update Manufacturer";
       tracker.reset();
       validateMfrForm();
       form.scrollIntoView({ behavior: "smooth" });
@@ -1991,6 +1978,7 @@ function renderManufacturersTab(mfrs, meds) {
     form.manufacturer_id.value = "";
     $("#mfrFormTitle").textContent = "Add Manufacturer";
     cancelBtn.style.display = "none";
+    saveBtn.textContent = "Save Manufacturer";
     tracker.reset();
     validateMfrForm();
   };
@@ -2059,6 +2047,10 @@ function renderCategoriesTab(cats, meds) {
     tracker.markSubmitted();
     if (!validateCatForm()) return;
     const cId = form.category_id.value;
+    const prevText = saveBtn.textContent;
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving...";
+
     try {
       if (cId) {
         await updateCategory(cId, { category_name: form.category_name.value });
@@ -2067,9 +2059,14 @@ function renderCategoriesTab(cats, meds) {
         await addCategory({ category_name: form.category_name.value });
         toast("Category added.");
       }
+      form.reset();
+      form.category_id.value = "";
+      tracker.reset();
       await vMedicines();
     } catch (err) {
       toast(err.message, true);
+      saveBtn.disabled = false;
+      saveBtn.textContent = prevText;
     }
   };
 
@@ -2083,6 +2080,7 @@ function renderCategoriesTab(cats, meds) {
       form.category_id.value = cat.category_id;
       form.category_name.value = cat.category_name;
       cancelBtn.style.display = "inline-flex";
+      saveBtn.textContent = "Update Category";
       tracker.reset();
       validateCatForm();
       form.scrollIntoView({ behavior: "smooth" });
@@ -2105,6 +2103,7 @@ function renderCategoriesTab(cats, meds) {
     form.category_id.value = "";
     $("#catFormTitle").textContent = "Add Category";
     cancelBtn.style.display = "none";
+    saveBtn.textContent = "Save Category";
     tracker.reset();
     validateCatForm();
   };
@@ -2218,6 +2217,10 @@ async function vSuppliers() {
     tracker.markSubmitted();
     if (!validateSupForm()) return;
     const sId = form.supplier_id.value;
+    const prevText = saveBtn.textContent;
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving...";
+
     try {
       if (sId) {
         await updateSupplier(sId, {
@@ -2234,9 +2237,14 @@ async function vSuppliers() {
         });
         toast("Supplier added.");
       }
+      form.reset();
+      form.supplier_id.value = "";
+      tracker.reset();
       await vSuppliers();
     } catch (err) {
       toast(err.message, true);
+      saveBtn.disabled = false;
+      saveBtn.textContent = prevText;
     }
   };
 
@@ -2248,10 +2256,11 @@ async function vSuppliers() {
       if (!s) return;
       $("#supFormTitle").textContent = "Edit Supplier";
       form.supplier_id.value = s.supplier_id;
-      form.supplier_name.value = s.supplier_name;
+      form.supplier_name.value = s.supplier_name || s.name;
       form.phone.value = s.phone;
       form.address.value = s.address;
       cancelBtn.style.display = "inline-flex";
+      saveBtn.textContent = "Update Supplier";
       tracker.reset();
       validateSupForm();
       form.scrollIntoView({ behavior: "smooth" });
@@ -2274,6 +2283,7 @@ async function vSuppliers() {
     form.supplier_id.value = "";
     $("#supFormTitle").textContent = "Add New Supplier";
     cancelBtn.style.display = "none";
+    saveBtn.textContent = "Save Supplier";
     tracker.reset();
     validateSupForm();
   };
@@ -2395,6 +2405,10 @@ async function vCustomers() {
     tracker.markSubmitted();
     if (!validateCustForm()) return;
     const cId = form.customer_id.value;
+    const prevText = saveBtn.textContent;
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving...";
+
     try {
       if (cId) {
         await updateCustomer(cId, {
@@ -2411,9 +2425,14 @@ async function vCustomers() {
         });
         toast("Customer registered.");
       }
+      form.reset();
+      form.customer_id.value = "";
+      tracker.reset();
       await vCustomers();
     } catch (err) {
       toast(err.message, true);
+      saveBtn.disabled = false;
+      saveBtn.textContent = prevText;
     }
   };
 
@@ -2425,10 +2444,11 @@ async function vCustomers() {
       if (!c) return;
       $("#custFormTitle").textContent = "Edit Customer";
       form.customer_id.value = c.customer_id;
-      form.customer_name.value = c.customer_name;
+      form.customer_name.value = c.customer_name || c.name;
       form.phone.value = c.phone;
       form.email.value = c.email || "";
       cancelBtn.style.display = "inline-flex";
+      saveBtn.textContent = "Update Customer";
       tracker.reset();
       validateCustForm();
       form.scrollIntoView({ behavior: "smooth" });
@@ -2451,6 +2471,7 @@ async function vCustomers() {
     form.customer_id.value = "";
     $("#custFormTitle").textContent = "Add New Customer";
     cancelBtn.style.display = "none";
+    saveBtn.textContent = "Save Customer";
     tracker.reset();
     validateCustForm();
   };

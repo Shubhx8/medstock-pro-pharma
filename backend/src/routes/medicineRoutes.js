@@ -8,6 +8,6 @@ router.get('/', medicineController.getMedicines);
 router.get('/:id', medicineController.getMedicineById);
 router.post('/', medicineController.createMedicine);
 router.put('/:id', medicineController.updateMedicine);
-router.delete('/:id', requireRole('admin'), medicineController.deleteMedicine);
+router.delete('/:id', requireRole('admin', 'pharmacist'), medicineController.deleteMedicine);
 
 module.exports = router;

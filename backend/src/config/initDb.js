@@ -35,6 +35,17 @@ async function autoInitDatabase(pool) {
         // Ignored if already VARCHAR(50)
       }
 
+      // Ensure alert foreign keys cascade delete when medicine or batch is deleted
+      try {
+        await pool.query('ALTER TABLE alert DROP FOREIGN KEY fk_alert_med');
+        await pool.query('ALTER TABLE alert ADD CONSTRAINT fk_alert_med FOREIGN KEY (medicine_id) REFERENCES medicine(medicine_id) ON DELETE CASCADE');
+      } catch (e) {}
+
+      try {
+        await pool.query('ALTER TABLE alert DROP FOREIGN KEY fk_alert_batch');
+        await pool.query('ALTER TABLE alert ADD CONSTRAINT fk_alert_batch FOREIGN KEY (batch_id) REFERENCES batch(batch_id) ON DELETE CASCADE');
+      } catch (e) {}
+
       return; // Already initialized
     }
 
